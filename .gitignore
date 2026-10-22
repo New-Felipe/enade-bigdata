@@ -1,0 +1,67 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Data
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Elasticsearch / Redis / Kafka local data
+elasticsearch-data/
+redis-data/
+kafka-data/
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Secrets / certificates / keys
+*.key
+*.pem
+*.crt
+*.jks
+*.keystore
+*.keytab
+
+# Kerberos / LDAP sensitive local configs
+security/kerberos/secrets/
+security/ldap/secrets/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
