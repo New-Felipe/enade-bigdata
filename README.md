@@ -89,6 +89,20 @@ Utilize o arquivo `.env.example` como referência para configuração local.
 
 A documentação técnica do projeto será mantida na pasta `docs/`.
 
+### Modelo de dados
+
+- [Modelo estruturado de questão ENADE](docs/modelo-questao.md)
+- [JSON Schema](docs/schemas/questao.schema.json)
+- [Exemplo de questão objetiva](docs/exemplos/questao-objetiva.json)
+- [Exemplo de questão discursiva](docs/exemplos/questao-discursiva.json)
+
+### Validação
+
+Para validar os exemplos, instale a dependência:
+
+```bash
+py -m pip install jsonschema
+
 ## Disciplina
 
 Projeto desenvolvido para a disciplina de Big Data do curso de Sistemas de Informação.
