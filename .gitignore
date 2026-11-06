@@ -36,8 +36,17 @@ Thumbs.db
 logs/
 
 # Data
-data/raw/*
+data/raw/**
 data/processed/*
+
+# Preservar a estrutura de diretórios do ENADE
+!data/raw/
+!data/raw/enade/
+!data/raw/enade/*/
+!data/raw/enade/*/*/
+!data/raw/enade/*/*/.gitkeep
+
+# Preservar marcadores existentes
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
