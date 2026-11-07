@@ -197,6 +197,26 @@ Os JSONs serão gerados em:
 python -m unittest extractor.test_segmenter -v
 ```
 
+### Exemplos de questões extraídas
+
+O diretório `extractor/exemplos/` contém dois arquivos JSON
+gerados a partir da prova ENADE 2021 de Sistemas de Informação:
+
+- `objetiva_01.json`: exemplo de questão objetiva,
+  com enunciado, alternativas A–E e rastreabilidade.
+- `discursiva_01.json`: exemplo de questão discursiva,
+  sem alternativas e com registro da página de origem.
+
+Os exemplos preservam a saída textual do extrator,
+incluindo eventuais imperfeições de espaçamento do PDF.
+
+O processamento também identifica páginas finais compostas
+exclusivamente por rascunho, evitando incluí-las no intervalo
+de conteúdo das questões.
+
+A comparação visual com a prova original foi realizada
+para as questões objetiva 01 e discursiva 01.
+
 ### Resultados e limitações
 
 Na prova ENADE 2021 de Sistemas de Informação, foram identificadas e exportadas 40 questões: 35 objetivas e 5 discursivas.

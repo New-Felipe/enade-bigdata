@@ -16,6 +16,7 @@ from extractor.segmenter import (
     segmentar_questao_em_coluna,
     segmentar_questoes_na_mesma_pagina,
     eh_pagina_questionario,
+    eh_pagina_apenas_rascunho,
     mapear_questoes_prova,
     segmentar_questao_com_continuacao,
     planejar_extracao_questoes,
@@ -36,6 +37,27 @@ class TestSegmentacaoEnade(unittest.TestCase):
     def setUpClass(cls):
         cls.paginas = extrair_paginas(PDF)
 
+    def test_pagina_apenas_rascunho(self):
+        pagina_2 = limpar_texto_pagina(
+            self.paginas[1]["texto"], 2
+        )
+        pagina_3 = limpar_texto_pagina(
+            self.paginas[2]["texto"], 3
+        )
+
+        self.assertFalse(
+            eh_pagina_apenas_rascunho(pagina_2)
+        )
+        self.assertTrue(
+            eh_pagina_apenas_rascunho(pagina_3)
+        )
+
+        self.assertFalse(
+            eh_pagina_apenas_rascunho(
+                pagina_3 + "\nConteudo de uma questao"
+            )
+        )
+
     def test_questao_objetiva_01(self):
         questao = segmentar_questao_em_paginas(
             self.paginas, 1, "objetiva", 5, 5, ARQUIVO
@@ -51,6 +73,22 @@ class TestSegmentacaoEnade(unittest.TestCase):
             questao["alternativas"][0]["texto"].startswith(
                 "o fator ambiental"
             )
+        )
+
+    def test_questao_discursiva_01_sem_pagina_rascunho(self):
+        questao = segmentar_questao_em_paginas(
+            self.paginas, 1, "discursiva", 2, 3, ARQUIVO
+        )
+
+        self.assertEqual(questao["origem"]["pagina"], 2)
+        self.assertEqual(questao["pagina_final"], 2)
+        self.assertEqual(questao["alternativas"], [])
+        self.assertIn(
+            "Considerando as informações e os argumentos",
+            questao["texto"],
+        )
+        self.assertNotIn(
+            "RASCUNHO", normalizar_texto(questao["texto"]).upper()
         )
 
     def test_questao_discursiva_02(self):

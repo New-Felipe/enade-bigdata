@@ -118,49 +118,27 @@ def separar_alternativas(texto):
         "alternativas": alternativas,
     }
 
-    # Evita retornar alternativas incompletas como resultado valido.
-    if [letra for _, letra in marcadores] != list("ABCDE"):
-        return {
-            "texto": texto.strip(),
-            "alternativas": [],
-        }
+def eh_pagina_apenas_rascunho(texto):
+    """Identifica paginas compostas somente por rascunho e marcadores."""
+    linhas = [
+        normalizar_texto(linha).strip().upper()
+        for linha in texto.splitlines()
+        if linha.strip()
+    ]
 
-    inicio_alternativas = marcadores[0][0]
+    if "RASCUNHO" not in linhas or "AREA LIVRE" not in linhas:
+        return False
 
-    texto_principal = "\n".join(
-        linhas[:inicio_alternativas]
-    ).strip()
-
-    alternativas = []
-
-    for posicao, (indice, letra) in enumerate(marcadores):
-        fim = (
-            marcadores[posicao + 1][0]
-            if posicao + 1 < len(marcadores)
-            else len(linhas)
-        )
-
-        conteudo = linhas[indice:fim]
-
-        primeira_linha = padrao.match(conteudo[0]).group(2)
-
-        continuacao = [
-            linha.strip()
-            for linha in conteudo[1:]
-            if linha.strip()
-        ]
-
-        alternativas.append({
-            "letra": letra,
-            "texto": " ".join(
-                [primeira_linha.strip()] + continuacao
-            ),
-        })
-
-    return {
-        "texto": texto_principal,
-        "alternativas": alternativas,
+    marcadores = {
+        "RASCUNHO",
+        "AREA LIVRE",
+        "SISTEMAS DE INFORMACAO",
     }
+
+    return all(
+        linha in marcadores or linha.isdecimal()
+        for linha in linhas
+    )
 
 def segmentar_questao_em_paginas(
     paginas,
@@ -174,6 +152,18 @@ def segmentar_questao_em_paginas(
 
     if not 1 <= pagina_inicial <= pagina_final <= len(paginas):
         raise ValueError("Intervalo de paginas invalido.")
+
+    # Desconsidera paginas finais compostas apenas por rascunho.
+    while pagina_final > pagina_inicial:
+        texto_final = limpar_texto_pagina(
+            paginas[pagina_final - 1]["texto"],
+            pagina_final,
+        )
+
+        if not eh_pagina_apenas_rascunho(texto_final):
+            break
+
+        pagina_final -= 1
 
     partes = []
 
