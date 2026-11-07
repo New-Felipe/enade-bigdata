@@ -422,3 +422,263 @@ def mapear_questoes_prova(paginas, caminho_pdf):
         )
 
     return questoes
+
+def planejar_extracao_questoes(questoes, ultima_pagina):
+    """Calcula intervalos candidatos para a extracao das questoes."""
+
+    planos = []
+
+    for indice, questao in enumerate(questoes):
+        pagina_inicial = questao["pagina"]
+
+        if indice + 1 < len(questoes):
+            proxima = questoes[indice + 1]
+
+            if proxima["pagina"] == pagina_inicial:
+                pagina_final = pagina_inicial
+            else:
+                pagina_final = proxima["pagina"] - 1
+        else:
+            pagina_final = ultima_pagina - 1
+
+        planos.append({
+            **questao,
+            "pagina_inicial": pagina_inicial,
+            "pagina_final_candidata": pagina_final,
+            "multiplas_paginas": pagina_final > pagina_inicial,
+        })
+
+    return planos
+
+def extrair_questoes_pagina_unica(paginas, planos, arquivo_origem):
+    """Extrai questoes que ocupam sozinhas uma unica pagina."""
+
+    questoes_extraidas = []
+    pendentes = []
+
+    quantidade_por_pagina = {}
+
+    for plano in planos:
+        pagina = plano["pagina_inicial"]
+        quantidade_por_pagina[pagina] = (
+            quantidade_por_pagina.get(pagina, 0) + 1
+        )
+
+    for plano in planos:
+        pagina = plano["pagina_inicial"]
+
+        if (
+            plano["multiplas_paginas"]
+            or quantidade_por_pagina[pagina] != 1
+        ):
+            pendentes.append(plano)
+            continue
+
+        try:
+            questao = segmentar_questao_em_paginas(
+                paginas=paginas,
+                numero_questao=plano["numero_questao"],
+                tipo_questao=plano["tipo_questao"],
+                pagina_inicial=pagina,
+                pagina_final=pagina,
+                arquivo_origem=arquivo_origem,
+            )
+
+            questoes_extraidas.append(questao)
+
+        except ValueError:
+            pendentes.append(plano)
+
+    return {
+        "extraidas": questoes_extraidas,
+        "pendentes": pendentes,
+    }
+
+def segmentar_questao_com_continuacao(
+    paginas,
+    numero_questao,
+    tipo_questao,
+    pagina_inicial,
+    pagina_continuacao,
+    proxima_questao,
+    arquivo_origem,
+):
+    """Segmenta uma questao que termina antes de outra na pagina seguinte."""
+
+    if not (
+        1 <= pagina_inicial < pagina_continuacao <= len(paginas)
+        and pagina_continuacao == pagina_inicial + 1
+    ):
+        raise ValueError("Intervalo de paginas invalido.")
+
+    texto_inicio = limpar_texto_pagina(
+        paginas[pagina_inicial - 1]["texto"],
+        pagina_inicial,
+    )
+
+    texto_continuacao = limpar_texto_pagina(
+        paginas[pagina_continuacao - 1]["texto"],
+        pagina_continuacao,
+    )
+
+    linhas_inicio = texto_inicio.splitlines()
+    linhas_continuacao = texto_continuacao.splitlines()
+
+    titulos_inicio = [
+        i for i, linha in enumerate(linhas_inicio)
+        if (q := identificar_titulo(linha))
+        and q["numero_questao"] == numero_questao
+        and q["tipo_questao"] == tipo_questao
+    ]
+
+    titulos_fim = [
+        i for i, linha in enumerate(linhas_continuacao)
+        if (q := identificar_titulo(linha))
+        and q["numero_questao"] == proxima_questao
+        and q["tipo_questao"] == tipo_questao
+    ]
+
+    if len(titulos_inicio) != 1 or len(titulos_fim) != 1:
+        raise ValueError("Titulos nao encontrados de forma unica.")
+
+    inicio = titulos_inicio[0]
+    fim = titulos_fim[0]
+
+    texto_completo = (
+        "\n".join(linhas_inicio[inicio + 1:])
+        + "\n"
+        + "\n".join(linhas_continuacao[:fim])
+    )
+
+    resultado = separar_alternativas(texto_completo)
+
+    return {
+        "numero_questao": numero_questao,
+        "tipo_questao": tipo_questao,
+        "texto": resultado["texto"],
+        "alternativas": resultado["alternativas"],
+        "origem": {
+            "arquivo": arquivo_origem,
+            "pagina": pagina_inicial,
+        },
+        "pagina_final": pagina_continuacao,
+    }
+
+
+def extrair_questoes_planejadas(
+    paginas,
+    planos,
+    caminho_pdf,
+    arquivo_origem,
+    continuacoes=None,
+):
+    """Integra os metodos de extracao conforme o mapeamento."""
+
+    continuacoes = continuacoes or {}
+    extraidas = []
+    falhas = []
+
+    colunas_cache = {}
+    paginas_multiplas_cache = {}
+
+    quantidade_por_pagina = {}
+
+    for plano in planos:
+        pagina = plano["pagina_inicial"]
+        quantidade_por_pagina[pagina] = (
+            quantidade_por_pagina.get(pagina, 0) + 1
+        )
+
+    for plano in planos:
+        numero = plano["numero_questao"]
+        tipo = plano["tipo_questao"]
+        pagina = plano["pagina_inicial"]
+        chave = (tipo, numero)
+
+        try:
+            if chave in continuacoes:
+                pagina_final, proxima_questao = continuacoes[chave]
+
+                questao = segmentar_questao_com_continuacao(
+                    paginas=paginas,
+                    numero_questao=numero,
+                    tipo_questao=tipo,
+                    pagina_inicial=pagina,
+                    pagina_continuacao=pagina_final,
+                    proxima_questao=proxima_questao,
+                    arquivo_origem=arquivo_origem,
+                )
+
+            elif plano.get("coluna"):
+                if pagina not in colunas_cache:
+                    colunas_cache[pagina] = extrair_colunas(
+                        caminho_pdf, pagina
+                    )["colunas"]
+
+                questao = segmentar_questao_em_coluna(
+                    texto_pagina=paginas[pagina - 1]["texto"],
+                    colunas=colunas_cache[pagina],
+                    numero_pagina=pagina,
+                    nome_coluna=plano["coluna"],
+                    numero_questao=numero,
+                    tipo_questao=tipo,
+                    arquivo_origem=arquivo_origem,
+                )
+
+            elif quantidade_por_pagina[pagina] > 1:
+                if pagina not in paginas_multiplas_cache:
+                    paginas_multiplas_cache[pagina] = (
+                        segmentar_questoes_na_mesma_pagina(
+                            texto_pagina=paginas[pagina - 1]["texto"],
+                            numero_pagina=pagina,
+                            arquivo_origem=arquivo_origem,
+                        )
+                    )
+
+                questao = next(
+                    (
+                        q for q in paginas_multiplas_cache[pagina]
+                        if q["numero_questao"] == numero
+                        and q["tipo_questao"] == tipo
+                    ),
+                    None,
+                )
+
+                if questao is None:
+                    raise ValueError("Questao nao encontrada.")
+
+            else:
+                questao = segmentar_questao_em_paginas(
+                    paginas=paginas,
+                    numero_questao=numero,
+                    tipo_questao=tipo,
+                    pagina_inicial=pagina,
+                    pagina_final=plano["pagina_final_candidata"],
+                    arquivo_origem=arquivo_origem,
+                )
+
+            extraidas.append(questao)
+
+        except ValueError as erro:
+            falhas.append({
+                "tipo_questao": tipo,
+                "numero_questao": numero,
+                "erro": str(erro),
+            })
+
+    revisar = [
+        {
+            "tipo_questao": q["tipo_questao"],
+            "numero_questao": q["numero_questao"],
+            "motivo": "Alternativas A-E nao identificadas",
+        }
+        for q in extraidas
+        if q["tipo_questao"] == "objetiva"
+        and len(q["alternativas"]) != 5
+    ]
+
+    return {
+        "extraidas": extraidas,
+        "falhas": falhas,
+        "revisar": revisar,
+    }

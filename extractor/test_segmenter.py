@@ -17,6 +17,9 @@ from extractor.segmenter import (
     segmentar_questoes_na_mesma_pagina,
     eh_pagina_questionario,
     mapear_questoes_prova,
+    segmentar_questao_com_continuacao,
+    planejar_extracao_questoes,
+    extrair_questoes_planejadas,
 )
 
 PDF = (
@@ -283,6 +286,172 @@ class TestSegmentacaoEnade(unittest.TestCase):
                 self.assertEqual(len(encontrados), 1)
                 self.assertEqual(encontrados[0]["pagina"], pagina)
                 self.assertEqual(encontrados[0]["coluna"], coluna)
+
+    def test_questoes_com_continuacao_na_pagina_seguinte(self):
+        casos = [
+            (5, 10, 11, 6),
+            (29, 32, 33, 30),
+        ]
+
+        for numero, inicio, fim, proxima in casos:
+            with self.subTest(questao=numero):
+                questao = segmentar_questao_com_continuacao(
+                    paginas=self.paginas,
+                    numero_questao=numero,
+                    tipo_questao="objetiva",
+                    pagina_inicial=inicio,
+                    pagina_continuacao=fim,
+                    proxima_questao=proxima,
+                    arquivo_origem=ARQUIVO,
+                )
+
+                self.assertEqual(
+                    questao["numero_questao"], numero
+                )
+                self.assertEqual(
+                    questao["tipo_questao"], "objetiva"
+                )
+                self.assertEqual(
+                    questao["origem"]["arquivo"], ARQUIVO
+                )
+                self.assertEqual(
+                    questao["origem"]["pagina"], inicio
+                )
+                self.assertEqual(
+                    questao["pagina_final"], fim
+                )
+
+                self.assertTrue(questao["texto"].strip())
+
+                alternativas = questao["alternativas"]
+
+                self.assertEqual(
+                    [a["letra"] for a in alternativas],
+                    list("ABCDE"),
+                )
+                self.assertTrue(
+                    all(a["texto"].strip() for a in alternativas)
+                )
+
+
+    def test_extracao_integrada_prova(self):
+        mapeadas = mapear_questoes_prova(self.paginas, PDF)
+
+        planos = planejar_extracao_questoes(
+            mapeadas,
+            len(self.paginas),
+        )
+
+        resultado = extrair_questoes_planejadas(
+            paginas=self.paginas,
+            planos=planos,
+            caminho_pdf=PDF,
+            arquivo_origem=ARQUIVO,
+            continuacoes={
+                ("objetiva", 5): (11, 6),
+                ("objetiva", 29): (33, 30),
+            },
+        )
+
+        extraidas = resultado["extraidas"]
+
+        self.assertEqual(len(extraidas), 40)
+        self.assertEqual(resultado["falhas"], [])
+
+        objetivas = [
+            q for q in extraidas
+            if q["tipo_questao"] == "objetiva"
+        ]
+
+        discursivas = [
+            q for q in extraidas
+            if q["tipo_questao"] == "discursiva"
+        ]
+
+        self.assertEqual(len(objetivas), 35)
+        self.assertEqual(len(discursivas), 5)
+
+        self.assertEqual(
+            sum(len(q["alternativas"]) == 5 for q in objetivas),
+            34,
+        )
+
+        self.assertTrue(
+            all(not q["alternativas"] for q in discursivas)
+        )
+
+        self.assertEqual(
+            [
+                item["numero_questao"]
+                for item in resultado["revisar"]
+            ],
+            [33],
+        )
+
+        for numero, pagina_final in [(5, 11), (29, 33)]:
+            questao = next(
+                q for q in objetivas
+                if q["numero_questao"] == numero
+            )
+            self.assertEqual(
+                questao["pagina_final"],
+                pagina_final,
+            )
+
+        identificadores = [
+            (q["tipo_questao"], q["numero_questao"])
+            for q in extraidas
+        ]
+
+        self.assertEqual(
+            len(identificadores),
+            len(set(identificadores)),
+        )
+
+    def test_extracao_integrada_prova(self):
+        from extractor.segmenter import (
+            planejar_extracao_questoes,
+            extrair_questoes_planejadas,
+        )
+
+        mapeadas = mapear_questoes_prova(self.paginas, PDF)
+        planos = planejar_extracao_questoes(
+            mapeadas, len(self.paginas)
+        )
+
+        resultado = extrair_questoes_planejadas(
+            paginas=self.paginas,
+            planos=planos,
+            caminho_pdf=PDF,
+            arquivo_origem=ARQUIVO,
+            continuacoes={
+                ("objetiva", 5): (11, 6),
+                ("objetiva", 29): (33, 30),
+            },
+        )
+
+        extraidas = resultado["extraidas"]
+        objetivas = [
+            q for q in extraidas
+            if q["tipo_questao"] == "objetiva"
+        ]
+        discursivas = [
+            q for q in extraidas
+            if q["tipo_questao"] == "discursiva"
+        ]
+
+        self.assertEqual(len(extraidas), 40)
+        self.assertEqual(resultado["falhas"], [])
+        self.assertEqual(len(objetivas), 35)
+        self.assertEqual(len(discursivas), 5)
+        self.assertEqual(
+            sum(len(q["alternativas"]) == 5 for q in objetivas),
+            34,
+        )
+        self.assertEqual(
+            [q["numero_questao"] for q in resultado["revisar"]],
+            [33],
+        )
 
 if __name__ == "__main__":
     unittest.main()
