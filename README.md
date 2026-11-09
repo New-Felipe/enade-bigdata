@@ -37,9 +37,14 @@ Camada transversal de segurança:
 │   ├── processed/
 │   └── raw/
 ├── docs/
+│   ├── exemplos/
+│   ├── schemas/
+│   └── modelo-questao.md
 ├── extractor/
 ├── frontend/
 ├── producer/
+├── scripts/
+│   └── validar_modelo.py
 ├── security/
 │   ├── kerberos/
 │   └── ldap/
@@ -88,6 +93,29 @@ Utilize o arquivo `.env.example` como referência para configuração local.
 ## Documentação
 
 A documentação técnica do projeto será mantida na pasta `docs/`.
+
+### Modelo de dados
+
+- [Modelo estruturado de questão ENADE](docs/modelo-questao.md)
+- [JSON Schema](docs/schemas/questao.schema.json)
+- [Exemplo de questão objetiva](docs/exemplos/questao-objetiva.json)
+- [Exemplo de questão discursiva](docs/exemplos/questao-discursiva.json)
+
+### Validação
+
+Para validar os exemplos, instale a dependência `jsonschema`, necessária para a validação:
+
+```bash
+py -m pip install jsonschema
+```
+
+Para executar o validador (Schema, regras semânticas e testes positivos e negativos):
+
+```bash
+py scripts/validar_modelo.py
+```
+
+O script pode ser executado de qualquer diretório e encerra com código diferente de zero em caso de falha.
 
 ## Disciplina
 

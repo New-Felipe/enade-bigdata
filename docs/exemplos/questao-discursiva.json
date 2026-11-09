@@ -1,0 +1,24 @@
+{
+  "id": "enade-sistemas-de-informacao-2023-ce-disc-q10",
+  "area": "Computação",
+  "curso": "Sistemas de Informação",
+  "ano": 2023,
+  "numero_questao": 10,
+  "tipo_conteudo": "CE",
+  "tipo_questao": "discursiva",
+  "enunciado": "Explique a importância da modelagem de dados no desenvolvimento de sistemas de informação.",
+  "alternativas": [],
+  "gabarito": null,
+  "anulada": false,
+  "objetos_conhecimento": [
+    "Banco de Dados",
+    "Modelagem de Dados"
+  ],
+  "competencias": [
+    "Projetar estruturas de dados para sistemas de informação."
+  ],
+  "origem": {
+    "arquivo": "enade_2023_sistemas_de_informacao_prova.pdf",
+    "pagina": 12
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Questão ENADE",
+  "description": "Modelo padrão para representação estruturada de uma questão do ENADE.",
+  "type": "object",
+  "additionalProperties": false,
+
+  "required": [
+    "id",
+    "area",
+    "curso",
+    "ano",
+    "numero_questao",
+    "tipo_conteudo",
+    "tipo_questao",
+    "enunciado",
+    "alternativas",
+    "gabarito",
+    "anulada",
+    "objetos_conhecimento",
+    "competencias",
+    "origem"
+  ],
+
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^enade-[a-z0-9]+(-[a-z0-9]+)*-[0-9]{4}-(fg|ce)-(obj|disc)-q[0-9]{2,}$",
+      "description": "Identificador único e determinístico: enade-{curso_slug}-{ano}-{tipo_conteudo}-{tipo_questao}-q{numero}. A correspondência com os demais campos é verificada pelo validador Python.",
+      "examples": ["enade-sistemas-de-informacao-2023-ce-obj-q01"]
+    },
+    "area": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Área de conhecimento da questão."
+    },
+    "curso": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Nome padronizado do curso. Questões de Formação Geral usam 'Formação Geral'."
+    },
+    "ano": {
+      "type": "integer",
+      "minimum": 2004,
+      "description": "Ano da edição do ENADE."
+    },
+    "numero_questao": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Número original da questão na prova."
+    },
+    "tipo_conteudo": {
+      "type": "string",
+      "enum": ["FG", "CE"],
+      "description": "FG: Formação Geral; CE: Componente Específico."
+    },
+    "tipo_questao": {
+      "type": "string",
+      "enum": ["objetiva", "discursiva"],
+      "description": "Classificação do formato da questão."
+    },
+    "texto_base": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Texto de apoio apresentado antes do enunciado, quando existente."
+    },
+    "enunciado": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Enunciado principal da questão."
+    },
+    "alternativas": {
+      "type": "array",
+      "description": "Alternativas disponíveis. Letras únicas entre A e E (unicidade verificada pelo validador Python).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["letra", "texto"],
+        "properties": {
+          "letra": {
+            "type": "string",
+            "enum": ["A", "B", "C", "D", "E"],
+            "description": "Letra da alternativa."
+          },
+          "texto": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Texto da alternativa."
+          }
+        }
+      },
+      "uniqueItems": true
+    },
+    "gabarito": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z]$",
+      "description": "Letra da alternativa correta, ou null quando não disponível ou não aplicável. A correspondência com as alternativas é verificada pelo validador Python."
+    },
+    "anulada": {
+      "type": "boolean",
+      "description": "Indica se a questão foi anulada oficialmente."
+    },
+    "objetos_conhecimento": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true
+    },
+    "competencias": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true
+    },
+    "origem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arquivo", "pagina"],
+      "properties": {
+        "arquivo": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Nome do PDF de origem."
+        },
+        "pagina": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Página do PDF onde a questão está localizada."
+        }
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "tipo_questao": {
+            "const": "objetiva"
+          }
+        },
+        "required": ["tipo_questao"]
+      },
+      "then": {
+        "properties": {
+          "alternativas": {
+            "minItems": 2
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tipo_questao": {
+            "const": "discursiva"
+          }
+        },
+        "required": ["tipo_questao"]
+      },
+      "then": {
+        "properties": {
+          "alternativas": {
+            "maxItems": 0
+          },
+          "gabarito": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "anulada": {
+            "const": true
+          }
+        },
+        "required": ["anulada"]
+      },
+      "then": {
+        "properties": {
+          "gabarito": {
+            "const": null
+          }
+        }
+      }
+    }
+  ]
+}
