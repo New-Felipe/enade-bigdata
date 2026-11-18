@@ -3,12 +3,13 @@ import sys
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ_PROJETO))
 
 from scripts.validar_modelo import validar_documento
+from consumer.dlq import enviar_para_dlq
 
 TOPICO = "enade-questoes"
 SERVIDOR_KAFKA = "localhost:29092"
@@ -31,6 +32,12 @@ def main():
         consumer_timeout_ms=30000,
     )
 
+    produtor_dlq = KafkaProducer(
+        bootstrap_servers=SERVIDOR_KAFKA,
+        acks="all",
+        retries=3,
+    )
+
     print(f"Aguardando questões no tópico '{TOPICO}'...")
 
     try:
@@ -39,7 +46,12 @@ def main():
                 questao = json.loads(mensagem.value.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as erro:
                 print(f"Mensagem inválida: {erro}")
-                raise SystemExit(1) from erro
+
+                enviar_para_dlq(produtor_dlq, mensagem, str(erro))
+                consumidor.commit()
+
+                print("Mensagem encaminhada à DLQ.")
+                continue
 
             erros = validar_documento(validador, questao)
 
@@ -47,7 +59,16 @@ def main():
                 print("Questão rejeitada:")
                 for erro in erros:
                     print(f"  - {erro}")
-                raise SystemExit(1)
+
+                enviar_para_dlq(
+                    produtor_dlq,
+                    mensagem,
+                    "; ".join(erros),
+                )
+                consumidor.commit()
+
+                print("Questão inválida encaminhada à DLQ.")
+                continue
 
             print("Questão validada com sucesso!")
             print(f"ID: {questao['id']}")
@@ -60,6 +81,7 @@ def main():
 
     finally:
         consumidor.close()
+        produtor_dlq.close()
 
 
 if __name__ == "__main__":
