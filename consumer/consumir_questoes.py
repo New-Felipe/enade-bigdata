@@ -10,6 +10,7 @@ sys.path.insert(0, str(RAIZ_PROJETO))
 
 from scripts.validar_modelo import validar_documento
 from consumer.dlq import enviar_para_dlq
+from consumer.idempotencia import registrar_se_nova
 
 TOPICO = "enade-questoes"
 SERVIDOR_KAFKA = "localhost:29092"
@@ -70,7 +71,12 @@ def main():
                 print("Questão inválida encaminhada à DLQ.")
                 continue
 
-            print("Questão validada com sucesso!")
+            if not registrar_se_nova(questao["id"]):
+                print(f"Questão duplicada identificada: {questao['id']}")
+                consumidor.commit()
+                continue
+
+            print("Questão validada e registrada localmente!")
             print(f"ID: {questao['id']}")
             print(f"Curso: {questao['curso']}")
             print(f"Tópico: {mensagem.topic}")
