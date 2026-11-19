@@ -55,6 +55,7 @@ Essas funcionalidades fazem parte da arquitetura planejada e ainda não estão i
 │   ├── dlq.py
 │   └── idempotencia.py
 ├── data/
+│   ├── catalogo.json
 │   ├── processed/
 │   └── raw/
 ├── docs/
@@ -348,7 +349,7 @@ Os resultados dependem dos documentos já indexados.
 
 ### Dead Letter Queue (DLQ)
 
-Mensagens com JSON malformado ou documentos rejeitados pela validação são encaminhados ao tópico `enade-questoes-dlq`.
+Mensagens com payload ausente (`value=None`), JSON malformado ou documentos rejeitados pela validação são encaminhados ao tópico `enade-questoes-dlq`.
 
 O registro enviado à DLQ contém:
 
@@ -356,7 +357,7 @@ O registro enviado à DLQ contém:
 - Partição de origem.
 - Offset de origem.
 - Motivo da rejeição.
-- Conteúdo original codificado em Base64.
+- Conteúdo original codificado em Base64 (`null` quando o payload está ausente e `""` quando o payload é vazio `b""`).
 
 O offset da mensagem original é confirmado somente após o envio bem-sucedido à DLQ.
 
@@ -464,9 +465,10 @@ Os registros contêm:
 
 Principais níveis:
 
-- `INFO`: publicação de questões, indexação no Elasticsearch, confirmação do processamento e encerramento de conexões.
-- `WARNING`: mensagens com JSON malformado ou questões rejeitadas pela validação.
-- `ERROR`: falhas de indexação ou outras falhas de processamento, com informações para diagnóstico.
+- `INFO`: publicação e consumo de questões, indexação no Elasticsearch, confirmação do processamento e encerramento de conexões.
+- `WARNING`: mensagens com JSON malformado, payload ausente ou questões rejeitadas pela validação.
+- `ERROR`: falhas de publicação, envio à DLQ, confirmação de offsets, validação, indexação no Elasticsearch ou fechamento de recursos, com detalhes para diagnóstico.
+
 
 Os logs de indexação incluem:
 
@@ -494,14 +496,22 @@ Executar:
 Cenários cobertos:
 
 1. Confirmação individual de offsets.
-2. Propagação de falhas durante o commit.
+2. Propagação e registro de falhas durante o commit.
 3. Falha da DLQ com JSON malformado.
 4. Falha da DLQ com questão rejeitada pelo schema.
 5. Reprocessamento após falha temporária no envio à DLQ.
-6. Falha na indexação Elasticsearch sem confirmação do offset.
-7. Indexação bem-sucedida com confirmação do offset seguinte.
+6. Tratamento de mensagens com payload ausente (`value=None`).
+7. Diferenciação entre payload ausente e payload vazio (`b""`).
+8. Indexação de questões válidas sem encaminhamento à DLQ.
+9. Rejeição semântica de questões inválidas.
+10. Reprocessamento de mensagens com o mesmo ID no Elasticsearch.
+11. Falha na indexação Elasticsearch sem confirmação do offset.
+12. Indexação bem-sucedida com confirmação do próximo offset.
+13. Fechamento seguro dos recursos, preservando a exceção original.
+14. Validação do campo `id` e tratamento de falhas no produtor Kafka.
 
-**Resultado: 7 testes do consumidor Kafka aprovados.**
+
+**Resultado: 19 testes automatizados de Kafka aprovados, incluindo testes do produtor e do consumidor.**
 
 ### Testes automatizados das consultas Elasticsearch
 
@@ -526,12 +536,13 @@ Cenários cobertos:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**Resultado da validação em 18/11/2026: 10 testes executados, 10 aprovados.**
+**Resultado da validação em 19/11/2026: 22 testes executados, 22 aprovados.**
 
 Também foram realizados testes funcionais com Kafka e Elasticsearch reais,
 incluindo indexação, consultas, filtros, agregações, prevenção de documentos
 duplicados por ID e recuperação após falhas controladas.
 
+**17 testes executados, 17 aprovados.**
 
 ### Validação do modelo ENADE
 
@@ -563,6 +574,74 @@ A documentação técnica do projeto é mantida na pasta `docs/`.
 - [JSON Schema](docs/schemas/questao.schema.json)
 - [Exemplo de questão objetiva](docs/exemplos/questao-objetiva.json)
 - [Exemplo de questão discursiva](docs/exemplos/questao-discursiva.json)
+
+## Acervo de documentos do ENADE
+
+Os arquivos brutos utilizados pelo projeto são obtidos do portal oficial do Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep).
+
+O acervo é organizado por ano e curso, permitindo identificar os documentos utilizados na extração e garantir a rastreabilidade das questões até sua fonte original.
+
+### Estrutura de armazenamento
+
+```text
+data/
+├── catalogo.json
+└── raw/
+    └── enade/
+        ├── 2021/
+        │   └── sistemas_de_informacao/
+        │       ├── enade_2021_sistemas_de_informacao_prova.pdf
+        │       └── enade_2021_sistemas_de_informacao_gabarito.pdf
+        └── 2023/
+            └── sistemas_de_informacao/
+```
+
+A estrutura pode ser ampliada conforme novos cursos e edições forem adicionados. Diretórios ainda sem documentos são mantidos com arquivos `.gitkeep`.
+
+### Padrão de nomenclatura
+
+Os arquivos seguem o padrão:
+
+`enade_<ano>_<curso>_<tipo>.pdf`
+
+Exemplos:
+
+- `enade_2021_sistemas_de_informacao_prova.pdf`
+- `enade_2021_sistemas_de_informacao_gabarito.pdf`
+
+### Origem e obtenção dos documentos
+
+Os documentos devem ser obtidos de fontes oficiais do Inep:
+
+- [Provas e gabaritos do ENADE 2021](https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enade/provas-e-gabaritos/2021)
+- [Provas e gabaritos do ENADE 2023](https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enade/provas-e-gabaritos/2023)
+
+Para recuperar os arquivos, consulte o campo `origem` no arquivo `data/catalogo.json`, baixe cada PDF e salve-o no caminho indicado pelo campo `caminho`.
+
+O catálogo é a referência para identificar quais documentos pertencem ao acervo do projeto.
+
+### Catálogo dos documentos
+
+O arquivo `data/catalogo.json` registra:
+
+- Ano da edição.
+- Curso.
+- Tipo do documento.
+- Nome padronizado do arquivo.
+- Caminho relativo no repositório.
+- URL oficial de origem.
+
+Essas informações permitirão que o pipeline de extração identifique o PDF de origem de cada questão.
+
+### Controle de versionamento
+
+Os PDFs brutos armazenados em `data/raw/` são ignorados pelo Git para evitar o versionamento de arquivos grandes.
+
+São versionados somente a estrutura de diretórios, os arquivos `.gitkeep`, o catálogo JSON e a documentação.
+
+Os PDFs precisam ser baixados novamente ao clonar o repositório, seguindo as URLs e os caminhos registrados no catálogo.
+
+Nesta etapa, não é realizada a extração nem a segmentação das questões.
 
 ## Próximos passos
 
