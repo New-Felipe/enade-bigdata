@@ -55,6 +55,7 @@ Essas funcionalidades fazem parte da arquitetura planejada e ainda não estão i
 │   ├── dlq.py
 │   └── idempotencia.py
 ├── data/
+│   ├── catalogo.json
 │   ├── processed/
 │   └── raw/
 ├── docs/
@@ -225,7 +226,7 @@ Um `LAG` igual a zero indica que, naquele momento, o grupo não possui mensagens
 
 ### Dead Letter Queue (DLQ)
 
-Mensagens com JSON malformado ou documentos rejeitados pela validação são encaminhados ao tópico `enade-questoes-dlq`.
+Mensagens com payload ausente (`value=None`), JSON malformado ou documentos rejeitados pela validação são encaminhados ao tópico `enade-questoes-dlq`.
 
 O registro enviado à DLQ contém:
 
@@ -233,7 +234,7 @@ O registro enviado à DLQ contém:
 - Partição de origem.
 - Offset de origem.
 - Motivo da rejeição.
-- Conteúdo original codificado em Base64.
+- Conteúdo original codificado em Base64 (`null` quando o payload está ausente e `""` quando o payload é vazio `b""`).
 
 O offset da mensagem original é confirmado somente após o envio bem-sucedido à DLQ.
 
@@ -298,7 +299,7 @@ Principais níveis:
 
 - `INFO`: publicação, consumo, duplicação e encerramento de conexões.
 - `WARNING`: mensagens inválidas ou rejeitadas.
-- `ERROR`: falhas de publicação, com detalhes para diagnóstico.
+- `ERROR`: falhas de publicação, envio à DLQ, confirmação de offsets, processamento ou fechamento de recursos, com detalhes para diagnóstico.
 
 As mensagens informativas internas da biblioteca Kafka são reduzidas para facilitar a análise dos logs da aplicação.
 
@@ -315,14 +316,19 @@ Executar:
 Cenários cobertos:
 
 1. Confirmação individual de offsets.
-2. Propagação de falhas durante o commit.
+2. Propagação e registro de falhas durante o commit.
 3. Falha da DLQ com JSON malformado.
 4. Falha da DLQ com questão rejeitada pelo schema.
 5. Reprocessamento após falha temporária simulada.
+6. Mensagem com payload ausente (`value=None`) encaminhada à DLQ e proteção contra falha da DLQ.
+7. Diferenciação na DLQ entre payload ausente (`None`) e payload vazio (`b""`).
+8. Fluxo válido do consumidor, deduplicação local no SQLite e rejeição semântica encaminhada à DLQ.
+9. Fechamento seguro de recursos no consumidor preservando a exceção original.
+10. Validação do campo `id` e tratamento de erros no produtor.
 
 Resultado da validação realizada em 18/11/2026:
 
-**5 testes executados, 5 aprovados.**
+**17 testes executados, 17 aprovados.**
 
 Também foram realizados testes funcionais com Kafka real para publicação, consumo, DLQ, deduplicação e recuperação de falhas.
 
@@ -356,6 +362,74 @@ A documentação técnica do projeto é mantida na pasta `docs/`.
 - [JSON Schema](docs/schemas/questao.schema.json)
 - [Exemplo de questão objetiva](docs/exemplos/questao-objetiva.json)
 - [Exemplo de questão discursiva](docs/exemplos/questao-discursiva.json)
+
+## Acervo de documentos do ENADE
+
+Os arquivos brutos utilizados pelo projeto são obtidos do portal oficial do Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep).
+
+O acervo é organizado por ano e curso, permitindo identificar os documentos utilizados na extração e garantir a rastreabilidade das questões até sua fonte original.
+
+### Estrutura de armazenamento
+
+```text
+data/
+├── catalogo.json
+└── raw/
+    └── enade/
+        ├── 2021/
+        │   └── sistemas_de_informacao/
+        │       ├── enade_2021_sistemas_de_informacao_prova.pdf
+        │       └── enade_2021_sistemas_de_informacao_gabarito.pdf
+        └── 2023/
+            └── sistemas_de_informacao/
+```
+
+A estrutura pode ser ampliada conforme novos cursos e edições forem adicionados. Diretórios ainda sem documentos são mantidos com arquivos `.gitkeep`.
+
+### Padrão de nomenclatura
+
+Os arquivos seguem o padrão:
+
+`enade_<ano>_<curso>_<tipo>.pdf`
+
+Exemplos:
+
+- `enade_2021_sistemas_de_informacao_prova.pdf`
+- `enade_2021_sistemas_de_informacao_gabarito.pdf`
+
+### Origem e obtenção dos documentos
+
+Os documentos devem ser obtidos de fontes oficiais do Inep:
+
+- [Provas e gabaritos do ENADE 2021](https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enade/provas-e-gabaritos/2021)
+- [Provas e gabaritos do ENADE 2023](https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enade/provas-e-gabaritos/2023)
+
+Para recuperar os arquivos, consulte o campo `origem` no arquivo `data/catalogo.json`, baixe cada PDF e salve-o no caminho indicado pelo campo `caminho`.
+
+O catálogo é a referência para identificar quais documentos pertencem ao acervo do projeto.
+
+### Catálogo dos documentos
+
+O arquivo `data/catalogo.json` registra:
+
+- Ano da edição.
+- Curso.
+- Tipo do documento.
+- Nome padronizado do arquivo.
+- Caminho relativo no repositório.
+- URL oficial de origem.
+
+Essas informações permitirão que o pipeline de extração identifique o PDF de origem de cada questão.
+
+### Controle de versionamento
+
+Os PDFs brutos armazenados em `data/raw/` são ignorados pelo Git para evitar o versionamento de arquivos grandes.
+
+São versionados somente a estrutura de diretórios, os arquivos `.gitkeep`, o catálogo JSON e a documentação.
+
+Os PDFs precisam ser baixados novamente ao clonar o repositório, seguindo as URLs e os caminhos registrados no catálogo.
+
+Nesta etapa, não é realizada a extração nem a segmentação das questões.
 
 ## Próximos passos
 

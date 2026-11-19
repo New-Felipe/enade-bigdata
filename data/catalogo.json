@@ -1,0 +1,18 @@
+[
+  {
+    "ano": 2021,
+    "curso": "Sistemas de Informacao",
+    "tipo": "prova",
+    "arquivo": "enade_2021_sistemas_de_informacao_prova.pdf",
+    "caminho": "data/raw/enade/2021/sistemas_de_informacao/enade_2021_sistemas_de_informacao_prova.pdf",
+    "origem": "https://download.inep.gov.br/enade/provas_e_gabaritos/2021_PV_bacharelado_sistema_informacao.pdf"
+  },
+  {
+    "ano": 2021,
+    "curso": "Sistemas de Informacao",
+    "tipo": "gabarito",
+    "arquivo": "enade_2021_sistemas_de_informacao_gabarito.pdf",
+    "caminho": "data/raw/enade/2021/sistemas_de_informacao/enade_2021_sistemas_de_informacao_gabarito.pdf",
+    "origem": "https://download.inep.gov.br/enade/provas_e_gabaritos/2021_GB_bacharelado_sistema_informacao.pdf"
+  }
+]
