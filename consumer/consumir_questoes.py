@@ -16,7 +16,8 @@ sys.path.insert(0, str(RAIZ_PROJETO))
 
 from scripts.validar_modelo import validar_documento
 from consumer.dlq import enviar_para_dlq
-from consumer.idempotencia import registrar_se_nova
+from consumer.indexacao import indexar_questao
+from elasticsearch import Elasticsearch
 
 TOPICO = "enade-questoes"
 SERVIDOR_KAFKA = "localhost:29092"
@@ -94,6 +95,7 @@ def main():
 
     consumidor = None
     produtor_dlq = None
+    cliente_es = None
     erro_original = None
 
     try:
@@ -110,6 +112,11 @@ def main():
             bootstrap_servers=SERVIDOR_KAFKA,
             acks="all",
             retries=3,
+        )
+
+        cliente_es = Elasticsearch(
+            "http://localhost:9200",
+            request_timeout=30,
         )
 
         logger.info("Consumidor iniciado. Topico: %s", TOPICO)
@@ -174,31 +181,21 @@ def main():
                 continue
 
             try:
-                nova = registrar_se_nova(questao["id"])
+                resposta = indexar_questao(cliente_es, questao)
             except Exception:
                 logger.exception(
-                    "Falha inesperada na deduplicacao local | id=%s topico=%s particao=%s offset=%s",
+                    "Falha ao indexar questao: id=%s particao=%s offset=%s",
                     questao["id"],
-                    mensagem.topic,
                     mensagem.partition,
                     mensagem.offset,
                 )
                 raise
 
-            if not nova:
-                logger.info(
-                    "Questao duplicada: id=%s",
-                    questao["id"],
-                )
-                confirmar_mensagem(consumidor, mensagem)
-                continue
-
             logger.info(
-                "Questao validada e registrada localmente: "
-                "id=%s curso=%s topico=%s particao=%s offset=%s",
+                "Questao indexada: id=%s resultado=%s "
+                "particao=%s offset=%s",
                 questao["id"],
-                questao["curso"],
-                mensagem.topic,
+                resposta["result"],
                 mensagem.partition,
                 mensagem.offset,
             )
@@ -210,15 +207,27 @@ def main():
         raise
 
     finally:
-        erro_consumidor = _encerrar_recurso("consumidor Kafka", consumidor)
-        erro_produtor = _encerrar_recurso("produtor DLQ", produtor_dlq)
+        erro_consumidor = _encerrar_recurso(
+            "consumidor Kafka", consumidor
+        )
+        erro_produtor = _encerrar_recurso(
+            "produtor DLQ", produtor_dlq
+        )
+        erro_elasticsearch = _encerrar_recurso(
+            "cliente Elasticsearch", cliente_es
+        )
+
         logger.info("Conexoes do consumidor encerradas.")
 
         if erro_original is None:
-            erro_fechamento = erro_consumidor or erro_produtor
+            erro_fechamento = (
+                erro_consumidor
+                or erro_produtor
+                or erro_elasticsearch
+            )
+
             if erro_fechamento is not None:
                 raise erro_fechamento
-
 
 
 if __name__ == "__main__":

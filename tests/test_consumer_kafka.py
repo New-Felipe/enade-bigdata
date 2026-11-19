@@ -6,10 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
+
 from consumer import consumir_questoes as modulo
 from consumer import dlq as modulo_dlq
-from consumer import idempotencia as modulo_idempotencia
-from kafka import TopicPartition
+from kafka import OffsetAndMetadata, TopicPartition
 from producer import publicar_questao as modulo_produtor
 
 EXEMPLO_OBJETIVA = (
@@ -207,11 +207,11 @@ class TestConsumidorKafka(unittest.TestCase):
         with (
             patch.object(modulo, "KafkaConsumer", return_value=consumidor),
             patch.object(modulo, "KafkaProducer", return_value=produtor_dlq),
-            patch.object(modulo, "registrar_se_nova") as registrar,
+            patch.object(modulo, "Elasticsearch", return_value=Mock()) as cliente_es,
         ):
             modulo.main()
 
-        registrar.assert_not_called()
+        cliente_es.return_value.close.assert_called_once()
         produtor_dlq.send.assert_called_once()
 
         topico_envio = produtor_dlq.send.call_args.args[0]
@@ -329,7 +329,8 @@ class TestConsumidorKafka(unittest.TestCase):
 
         self.assertEqual(consumidor.commit.call_count, 3)
 
-    def test_documento_valido_processado_confirma_offset_e_registra_sqlite(self):
+
+    def test_documento_valido_indexado_sem_envio_dlq(self):
         conteudo = EXEMPLO_OBJETIVA.read_bytes()
         questao = json.loads(conteudo.decode("utf-8"))
 
@@ -343,43 +344,60 @@ class TestConsumidorKafka(unittest.TestCase):
 
         consumidor = MagicMock()
         consumidor.__iter__.return_value = iter([mensagem])
+
         produtor = Mock()
+        cliente_es = Mock()
 
-        with tempfile.TemporaryDirectory() as diretorio_temp:
-            banco_temp = Path(diretorio_temp) / "idempotencia.sqlite3"
-            with (
-                patch.object(modulo_idempotencia, "CAMINHO_BANCO", banco_temp),
-                patch.object(modulo, "KafkaConsumer", return_value=consumidor),
-                patch.object(modulo, "KafkaProducer", return_value=produtor),
-                patch.object(modulo, "enviar_para_dlq") as enviar,
-            ):
-                modulo.main()
+        with (
+            patch.object(
+                modulo, "KafkaConsumer", return_value=consumidor
+            ),
+            patch.object(
+                modulo, "KafkaProducer", return_value=produtor
+            ),
+            patch.object(
+                modulo, "Elasticsearch", return_value=cliente_es
+            ),
+            patch.object(
+                modulo, "enviar_para_dlq"
+            ) as enviar,
+            patch.object(
+                modulo,
+                "indexar_questao",
+                return_value={"result": "created"},
+            ) as indexar,
+        ):
+            modulo.main()
 
-            self.assertTrue(banco_temp.is_file())
-            with patch.object(modulo_idempotencia, "CAMINHO_BANCO", banco_temp):
-                self.assertFalse(modulo_idempotencia.registrar_se_nova(questao["id"]))
-
+        indexar.assert_called_once_with(cliente_es, questao)
         enviar.assert_not_called()
+
         particao = TopicPartition("enade-questoes", 2)
         offsets = consumidor.commit.call_args.kwargs["offsets"]
+
         self.assertEqual(list(offsets), [particao])
         self.assertEqual(offsets[particao].offset, 42)
+
         consumidor.commit.assert_called_once()
         consumidor.close.assert_called_once()
         produtor.close.assert_called_once()
+        cliente_es.close.assert_called_once()
 
-    def test_mensagem_duplicada_identificada_pelo_sqlite(self):
+
+
+    def test_reprocessamento_mesmo_id_indexa_e_confirma_offsets(self):
         conteudo = EXEMPLO_OBJETIVA.read_bytes()
         questao = json.loads(conteudo.decode("utf-8"))
 
-        msg_1 = SimpleNamespace(
+        mensagem_1 = SimpleNamespace(
             topic="enade-questoes",
             partition=1,
             offset=30,
             key=questao["id"].encode("utf-8"),
             value=conteudo,
         )
-        msg_2 = SimpleNamespace(
+
+        mensagem_2 = SimpleNamespace(
             topic="enade-questoes",
             partition=1,
             offset=31,
@@ -388,35 +406,56 @@ class TestConsumidorKafka(unittest.TestCase):
         )
 
         consumidor = MagicMock()
-        consumidor.__iter__.return_value = iter([msg_1, msg_2])
-        produtor = Mock()
+        consumidor.__iter__.return_value = iter(
+            [mensagem_1, mensagem_2]
+        )
 
-        with tempfile.TemporaryDirectory() as diretorio_temp:
-            banco_temp = Path(diretorio_temp) / "idempotencia.sqlite3"
-            with (
-                patch.object(modulo_idempotencia, "CAMINHO_BANCO", banco_temp),
-                patch.object(modulo, "KafkaConsumer", return_value=consumidor),
-                patch.object(modulo, "KafkaProducer", return_value=produtor),
-                patch.object(modulo, "enviar_para_dlq") as enviar,
-                self.assertLogs(modulo.logger, level="INFO") as logs,
-            ):
-                modulo.main()
+        produtor = Mock()
+        cliente_es = Mock()
+
+        with (
+            patch.object(
+                modulo, "KafkaConsumer", return_value=consumidor
+            ),
+            patch.object(
+                modulo, "KafkaProducer", return_value=produtor
+            ),
+            patch.object(
+                modulo, "Elasticsearch", return_value=cliente_es
+            ),
+            patch.object(modulo, "enviar_para_dlq") as enviar,
+            patch.object(
+                modulo,
+                "indexar_questao",
+                side_effect=[
+                    {"result": "created"},
+                    {"result": "updated"},
+                ],
+            ) as indexar,
+        ):
+            modulo.main()
+
+        self.assertEqual(indexar.call_count, 2)
+
+        for chamada in indexar.call_args_list:
+            self.assertEqual(chamada.args, (cliente_es, questao))
 
         enviar.assert_not_called()
-        self.assertEqual(consumidor.commit.call_count, 2)
 
         particao = TopicPartition("enade-questoes", 1)
+
         offsets_confirmados = [
             chamada.kwargs["offsets"][particao].offset
             for chamada in consumidor.commit.call_args_list
         ]
+
         self.assertEqual(offsets_confirmados, [31, 32])
-        self.assertTrue(
-            any("Questao validada e registrada localmente" in l for l in logs.output)
-        )
-        self.assertTrue(
-            any(f"Questao duplicada: id={questao['id']}" in l for l in logs.output)
-        )
+        self.assertEqual(consumidor.commit.call_count, 2)
+
+        consumidor.close.assert_called_once()
+        produtor.close.assert_called_once()
+        cliente_es.close.assert_called_once()
+
 
     def test_documento_semanticamente_invalido_encaminhado_para_dlq(self):
         questao = json.loads(EXEMPLO_OBJETIVA.read_text(encoding="utf-8"))
@@ -443,11 +482,12 @@ class TestConsumidorKafka(unittest.TestCase):
         with (
             patch.object(modulo, "KafkaConsumer", return_value=consumidor),
             patch.object(modulo, "KafkaProducer", return_value=produtor_dlq),
-            patch.object(modulo, "registrar_se_nova") as registrar,
+            patch.object(modulo, "Elasticsearch", return_value=Mock()),
+            patch.object(modulo, "indexar_questao") as indexar,
         ):
             modulo.main()
 
-        registrar.assert_not_called()
+        indexar.assert_not_called()
         produtor_dlq.send.assert_called_once()
         registro = json.loads(
             produtor_dlq.send.call_args.kwargs["value"].decode("utf-8")
@@ -537,6 +577,135 @@ class TestConsumidorKafka(unittest.TestCase):
                 for l in logs.output
             )
         )
+
+    def test_falha_indexacao_nao_confirma_offset(self):
+                caminho = (
+                    modulo.RAIZ_PROJETO
+                    / "docs"
+                    / "exemplos"
+                    / "questao-objetiva.json"
+                )
+
+                questao = json.loads(caminho.read_text(encoding="utf-8"))
+
+                mensagem = SimpleNamespace(
+                    topic="enade-questoes",
+                    partition=2,
+                    offset=200,
+                    value=json.dumps(
+                        questao,
+                        ensure_ascii=False,
+                    ).encode("utf-8"),
+                )
+
+                consumidor = MagicMock()
+                consumidor.__iter__.return_value = iter([mensagem])
+
+                produtor = Mock()
+                cliente_es = Mock()
+
+                with (
+                    patch.object(
+                        modulo,
+                        "KafkaConsumer",
+                        return_value=consumidor,
+                    ),
+                    patch.object(
+                        modulo,
+                        "KafkaProducer",
+                        return_value=produtor,
+                    ),
+                    patch.object(
+                        modulo,
+                        "Elasticsearch",
+                        return_value=cliente_es,
+                    ),
+                    patch.object(
+                        modulo,
+                        "indexar_questao",
+                        side_effect=RuntimeError(
+                            "Falha simulada no Elasticsearch"
+                        ),
+                    ) as indexar,
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "Falha simulada no Elasticsearch",
+                    ):
+                        modulo.main()
+
+                    indexar.assert_called_once_with(cliente_es, questao)
+
+                    consumidor.commit.assert_not_called()
+
+                    consumidor.close.assert_called_once()
+                    produtor.close.assert_called_once()
+                    cliente_es.close.assert_called_once()
+
+
+    def test_indexacao_sucesso_confirma_offset(self):
+                caminho = (
+                    modulo.RAIZ_PROJETO
+                    / "docs"
+                    / "exemplos"
+                    / "questao-objetiva.json"
+                )
+
+                questao = json.loads(caminho.read_text(encoding="utf-8"))
+
+                mensagem = SimpleNamespace(
+                    topic="enade-questoes",
+                    partition=2,
+                    offset=200,
+                    value=json.dumps(
+                        questao,
+                        ensure_ascii=False,
+                    ).encode("utf-8"),
+                )
+
+                consumidor = MagicMock()
+                consumidor.__iter__.return_value = iter([mensagem])
+
+                produtor = Mock()
+                cliente_es = Mock()
+
+                with (
+                    patch.object(
+                        modulo,
+                        "KafkaConsumer",
+                        return_value=consumidor,
+                    ),
+                    patch.object(
+                        modulo,
+                        "KafkaProducer",
+                        return_value=produtor,
+                    ),
+                    patch.object(
+                        modulo,
+                        "Elasticsearch",
+                        return_value=cliente_es,
+                    ),
+                    patch.object(
+                        modulo,
+                        "indexar_questao",
+                        return_value={"result": "created"},
+                    ) as indexar,
+                ):
+                    modulo.main()
+
+                    indexar.assert_called_once_with(cliente_es, questao)
+
+                    consumidor.commit.assert_called_once_with(
+                        offsets={
+                            TopicPartition(
+                                "enade-questoes", 2
+                            ): OffsetAndMetadata(201, "")
+                        }
+                    )
+
+                    consumidor.close.assert_called_once()
+                    produtor.close.assert_called_once()
+                    cliente_es.close.assert_called_once()
 
 
 class TestProdutorKafka(unittest.TestCase):
