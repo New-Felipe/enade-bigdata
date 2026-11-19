@@ -1,5 +1,6 @@
 import json
 import sys
+import logging
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -20,9 +21,19 @@ from consumer.idempotencia import registrar_se_nova
 TOPICO = "enade-questoes"
 SERVIDOR_KAFKA = "localhost:29092"
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+logging.getLogger("kafka").setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
+
 CAMINHO_SCHEMA = (
     RAIZ_PROJETO / "docs" / "schemas" / "questao.schema.json"
 )
+
 
 def confirmar_mensagem(consumidor, mensagem):
     particao = TopicPartition(
@@ -40,6 +51,7 @@ def confirmar_mensagem(consumidor, mensagem):
             )
         }
     )
+
 
 def main():
     schema = json.loads(CAMINHO_SCHEMA.read_text(encoding="utf-8"))
@@ -60,27 +72,33 @@ def main():
         retries=3,
     )
 
-    print(f"Aguardando questões no tópico '{TOPICO}'...")
+    logger.info("Consumidor iniciado. Topico: %s", TOPICO)
 
     try:
         for mensagem in consumidor:
             try:
                 questao = json.loads(mensagem.value.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as erro:
-                print(f"Mensagem inválida: {erro}")
+                logger.warning(
+                    "Mensagem invalida: %s | particao=%s offset=%s",
+                    erro,
+                    mensagem.partition,
+                    mensagem.offset,
+                )
 
                 enviar_para_dlq(produtor_dlq, mensagem, str(erro))
                 confirmar_mensagem(consumidor, mensagem)
 
-                print("Mensagem encaminhada à DLQ.")
+                logger.info("Mensagem encaminhada a DLQ.")
                 continue
 
             erros = validar_documento(validador, questao)
 
             if erros:
-                print("Questão rejeitada:")
-                for erro in erros:
-                    print(f"  - {erro}")
+                logger.warning(
+                    "Questao rejeitada: %s",
+                    "; ".join(erros),
+                )
 
                 enviar_para_dlq(
                     produtor_dlq,
@@ -89,26 +107,34 @@ def main():
                 )
                 confirmar_mensagem(consumidor, mensagem)
 
-                print("Questão inválida encaminhada à DLQ.")
+                logger.info("Questao invalida encaminhada a DLQ.")
                 continue
 
             if not registrar_se_nova(questao["id"]):
-                print(f"Questão duplicada identificada: {questao['id']}")
+                logger.info(
+                    "Questao duplicada: id=%s",
+                    questao["id"],
+                )
                 confirmar_mensagem(consumidor, mensagem)
                 continue
 
-            print("Questão validada e registrada localmente!")
-            print(f"ID: {questao['id']}")
-            print(f"Curso: {questao['curso']}")
-            print(f"Tópico: {mensagem.topic}")
-            print(f"Partição: {mensagem.partition}")
-            print(f"Offset: {mensagem.offset}")
+            logger.info(
+                "Questao validada e registrada localmente: "
+                "id=%s curso=%s topico=%s particao=%s offset=%s",
+                questao["id"],
+                questao["curso"],
+                mensagem.topic,
+                mensagem.partition,
+                mensagem.offset,
+            )
 
             confirmar_mensagem(consumidor, mensagem)
 
     finally:
         consumidor.close()
         produtor_dlq.close()
+        logger.info("Conexoes do consumidor encerradas.")
+
 
 
 if __name__ == "__main__":
