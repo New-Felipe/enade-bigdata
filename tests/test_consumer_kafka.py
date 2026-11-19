@@ -1,9 +1,10 @@
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from consumer import consumir_questoes as modulo
-from kafka import TopicPartition
+from kafka import OffsetAndMetadata, TopicPartition
 
 
 class TestConsumidorKafka(unittest.TestCase):
@@ -170,6 +171,136 @@ class TestConsumidorKafka(unittest.TestCase):
 
             primeiro_consumidor.close.assert_called_once()
             segundo_consumidor.close.assert_called_once()
+
+
+    def test_falha_indexacao_nao_confirma_offset(self):
+        caminho = (
+            modulo.RAIZ_PROJETO
+            / "docs"
+            / "exemplos"
+            / "questao-objetiva.json"
+        )
+
+        questao = json.loads(caminho.read_text(encoding="utf-8"))
+
+        mensagem = SimpleNamespace(
+            topic="enade-questoes",
+            partition=2,
+            offset=200,
+            value=json.dumps(
+                questao,
+                ensure_ascii=False,
+            ).encode("utf-8"),
+        )
+
+        consumidor = MagicMock()
+        consumidor.__iter__.return_value = iter([mensagem])
+
+        produtor = Mock()
+        cliente_es = Mock()
+
+        with (
+            patch.object(
+                modulo,
+                "KafkaConsumer",
+                return_value=consumidor,
+            ),
+            patch.object(
+                modulo,
+                "KafkaProducer",
+                return_value=produtor,
+            ),
+            patch.object(
+                modulo,
+                "Elasticsearch",
+                return_value=cliente_es,
+            ),
+            patch.object(
+                modulo,
+                "indexar_questao",
+                side_effect=RuntimeError(
+                    "Falha simulada no Elasticsearch"
+                ),
+            ) as indexar,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Falha simulada no Elasticsearch",
+            ):
+                modulo.main()
+
+            indexar.assert_called_once_with(cliente_es, questao)
+
+            consumidor.commit.assert_not_called()
+
+            consumidor.close.assert_called_once()
+            produtor.close.assert_called_once()
+            cliente_es.close.assert_called_once()
+
+
+    def test_indexacao_sucesso_confirma_offset(self):
+        caminho = (
+            modulo.RAIZ_PROJETO
+            / "docs"
+            / "exemplos"
+            / "questao-objetiva.json"
+        )
+
+        questao = json.loads(caminho.read_text(encoding="utf-8"))
+
+        mensagem = SimpleNamespace(
+            topic="enade-questoes",
+            partition=2,
+            offset=200,
+            value=json.dumps(
+                questao,
+                ensure_ascii=False,
+            ).encode("utf-8"),
+        )
+
+        consumidor = MagicMock()
+        consumidor.__iter__.return_value = iter([mensagem])
+
+        produtor = Mock()
+        cliente_es = Mock()
+
+        with (
+            patch.object(
+                modulo,
+                "KafkaConsumer",
+                return_value=consumidor,
+            ),
+            patch.object(
+                modulo,
+                "KafkaProducer",
+                return_value=produtor,
+            ),
+            patch.object(
+                modulo,
+                "Elasticsearch",
+                return_value=cliente_es,
+            ),
+            patch.object(
+                modulo,
+                "indexar_questao",
+                return_value={"result": "created"},
+            ) as indexar,
+        ):
+            modulo.main()
+
+            indexar.assert_called_once_with(cliente_es, questao)
+
+            consumidor.commit.assert_called_once_with(
+                offsets={
+                    TopicPartition(
+                        "enade-questoes", 2
+                    ): OffsetAndMetadata(201, "")
+                }
+            )
+
+            consumidor.close.assert_called_once()
+            produtor.close.assert_called_once()
+            cliente_es.close.assert_called_once()
 
 
 if __name__ == "__main__":

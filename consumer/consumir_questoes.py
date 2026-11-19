@@ -16,7 +16,8 @@ sys.path.insert(0, str(RAIZ_PROJETO))
 
 from scripts.validar_modelo import validar_documento
 from consumer.dlq import enviar_para_dlq
-from consumer.idempotencia import registrar_se_nova
+from consumer.indexacao import indexar_questao
+from elasticsearch import Elasticsearch
 
 TOPICO = "enade-questoes"
 SERVIDOR_KAFKA = "localhost:29092"
@@ -72,6 +73,11 @@ def main():
         retries=3,
     )
 
+    cliente_es = Elasticsearch(
+        "http://localhost:9200",
+        request_timeout=30,
+    )
+
     logger.info("Consumidor iniciado. Topico: %s", TOPICO)
 
     try:
@@ -110,29 +116,34 @@ def main():
                 logger.info("Questao invalida encaminhada a DLQ.")
                 continue
 
-            if not registrar_se_nova(questao["id"]):
-                logger.info(
-                    "Questao duplicada: id=%s",
+
+            try:
+                resposta = indexar_questao(cliente_es, questao)
+            except Exception:
+                logger.exception(
+                    "Falha ao indexar questao: id=%s particao=%s offset=%s",
                     questao["id"],
+                    mensagem.partition,
+                    mensagem.offset,
                 )
-                confirmar_mensagem(consumidor, mensagem)
-                continue
+                raise
 
             logger.info(
-                "Questao validada e registrada localmente: "
-                "id=%s curso=%s topico=%s particao=%s offset=%s",
+                "Questao indexada: id=%s resultado=%s "
+                "particao=%s offset=%s",
                 questao["id"],
-                questao["curso"],
-                mensagem.topic,
+                resposta["result"],
                 mensagem.partition,
                 mensagem.offset,
             )
 
             confirmar_mensagem(consumidor, mensagem)
 
+
     finally:
         consumidor.close()
         produtor_dlq.close()
+        cliente_es.close()
         logger.info("Conexoes do consumidor encerradas.")
 
 
