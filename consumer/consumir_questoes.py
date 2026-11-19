@@ -3,7 +3,12 @@ import sys
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import (
+    KafkaConsumer,
+    KafkaProducer,
+    OffsetAndMetadata,
+    TopicPartition,
+)
 
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ_PROJETO))
@@ -19,6 +24,22 @@ CAMINHO_SCHEMA = (
     RAIZ_PROJETO / "docs" / "schemas" / "questao.schema.json"
 )
 
+def confirmar_mensagem(consumidor, mensagem):
+    particao = TopicPartition(
+        mensagem.topic,
+        mensagem.partition,
+    )
+
+    proximo_offset = mensagem.offset + 1
+
+    consumidor.commit(
+        offsets={
+            particao: OffsetAndMetadata(
+                proximo_offset,
+                "",
+            )
+        }
+    )
 
 def main():
     schema = json.loads(CAMINHO_SCHEMA.read_text(encoding="utf-8"))
@@ -49,7 +70,7 @@ def main():
                 print(f"Mensagem inválida: {erro}")
 
                 enviar_para_dlq(produtor_dlq, mensagem, str(erro))
-                consumidor.commit()
+                confirmar_mensagem(consumidor, mensagem)
 
                 print("Mensagem encaminhada à DLQ.")
                 continue
@@ -66,14 +87,14 @@ def main():
                     mensagem,
                     "; ".join(erros),
                 )
-                consumidor.commit()
+                confirmar_mensagem(consumidor, mensagem)
 
                 print("Questão inválida encaminhada à DLQ.")
                 continue
 
             if not registrar_se_nova(questao["id"]):
                 print(f"Questão duplicada identificada: {questao['id']}")
-                consumidor.commit()
+                confirmar_mensagem(consumidor, mensagem)
                 continue
 
             print("Questão validada e registrada localmente!")
@@ -83,7 +104,7 @@ def main():
             print(f"Partição: {mensagem.partition}")
             print(f"Offset: {mensagem.offset}")
 
-            consumidor.commit()
+            confirmar_mensagem(consumidor, mensagem)
 
     finally:
         consumidor.close()
