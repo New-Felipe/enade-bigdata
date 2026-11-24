@@ -19,10 +19,10 @@ O Apache Kafka é responsável pelo transporte das questões estruturadas entre 
 2. As mensagens são enviadas ao tópico `enade-questoes`.
 3. O consumidor recebe e valida os documentos.
 4. Mensagens inválidas são encaminhadas à Dead Letter Queue (DLQ).
-5. Questões válidas passam pela verificação de duplicação local.
-6. O consumidor confirma os offsets após o tratamento das mensagens.
+5. Questões válidas são indexadas no Elasticsearch utilizando o campo `id` como identificador determinístico (`_id`).
+6. O consumidor confirma os offsets somente após o envio à DLQ ou a indexação bem-sucedida.
 
-A integração com Elasticsearch para persistência definitiva dos documentos está prevista na Issue #49.
+A integração inicial com o Elasticsearch (indexação, busca por enunciado, filtros por ano/curso/tipo e agregações) está implementada na etapa atual da Issue #49; evoluções adicionais de busca e filtros permanecem previstas para entregas posteriores.
 
 ### Segurança prevista
 
@@ -34,11 +34,12 @@ Essas funcionalidades fazem parte da arquitetura planejada e ainda não estão i
 ## Tecnologias
 
 - Python
+- PyMuPDF 2.1
 - Apache Kafka 3.9.1
 - kafka-python 3.0.13
 - JSON Schema / jsonschema 4.26.0
 - SQLite
-- Elasticsearch
+- Elasticsearch 8.15.3 / elasticsearch 8.15.1
 - Redis
 - Docker / Docker Compose
 - LDAP e Kerberos (planejados)
@@ -51,18 +52,31 @@ Essas funcionalidades fazem parte da arquitetura planejada e ainda não estão i
 .
 ├── api/
 ├── consumer/
+│   ├── consultas.py
 │   ├── consumir_questoes.py
 │   ├── dlq.py
-│   └── idempotencia.py
+│   ├── idempotencia.py
+│   └── indexacao.py
 ├── data/
 │   ├── catalogo.json
 │   ├── processed/
 │   └── raw/
 ├── docs/
+│   ├── elasticsearch/
+│   │   └── indice-questoes.json
 │   ├── exemplos/
 │   ├── schemas/
 │   └── modelo-questao.md
 ├── extractor/
+│   ├── exemplos/
+│   │   ├── discursiva_01.json
+│   │   └── objetiva_01.json
+│   ├── extractor.py
+│   ├── gerador_json.py
+│   ├── gerar_questoes.py
+│   ├── requirements.txt
+│   ├── segmenter.py
+│   └── test_segmenter.py
 ├── frontend/
 ├── producer/
 │   └── publicar_questao.py
@@ -72,6 +86,7 @@ Essas funcionalidades fazem parte da arquitetura planejada e ainda não estão i
 │   ├── kerberos/
 │   └── ldap/
 ├── tests/
+│   ├── test_consultas_elasticsearch.py
 │   └── test_consumer_kafka.py
 ├── .env.example
 ├── .gitignore
@@ -88,6 +103,17 @@ Essas funcionalidades fazem parte da arquitetura planejada e ainda não estão i
 - Validação com JSON Schema.
 - Validações semânticas adicionais.
 - Exemplos de documentos ENADE.
+
+### Extração e segmentação de questões — Issue #3
+
+- Extração textual de PDFs do ENADE com PyMuPDF.
+- Segmentação de questões objetivas e discursivas (incluindo múltiplas páginas e duas colunas).
+- Identificação de alternativas A–E quando reconhecíveis e sinalização de casos para revisão.
+- Exportação de arquivos JSON intermediários individuais com rastreabilidade de arquivo e página de origem.
+- Exclusão de páginas de rascunho e do questionário de percepção da prova.
+- Suíte automatizada de testes de regressão.
+
+Os documentos gerados nesta etapa são intermediários e ainda não substituem a compatibilização com o Schema canônico da Issue #1.
 
 ### Mensageria com Apache Kafka — Issue #48
 
@@ -128,8 +154,7 @@ de persistência, identificando os documentos pelo ID da questão.
 
 ## Funcionalidades planejadas
 
-- Extração de questões de provas do ENADE.
-- Segmentação de cada questão em documentos independentes.
+- Compatibilização dos JSONs intermediários da extração com o Schema canônico (Issue #1).
 - Tratamento de fórmulas, diagramas, tabelas e imagens.
 - Ampliação das consultas para filtros por área e competência.
 - Ampliação da busca textual para texto-base, alternativas e outros campos.
@@ -542,8 +567,6 @@ Também foram realizados testes funcionais com Kafka e Elasticsearch reais,
 incluindo indexação, consultas, filtros, agregações, prevenção de documentos
 duplicados por ID e recuperação após falhas controladas.
 
-**17 testes executados, 17 aprovados.**
-
 ### Validação do modelo ENADE
 
 Para executar o validador de documentos:
@@ -641,14 +664,87 @@ São versionados somente a estrutura de diretórios, os arquivos `.gitkeep`, o c
 
 Os PDFs precisam ser baixados novamente ao clonar o repositório, seguindo as URLs e os caminhos registrados no catálogo.
 
-Nesta etapa, não é realizada a extração nem a segmentação das questões.
+A extração e a segmentação textual a partir desses PDFs estão documentadas na seção seguinte.
+
+## Extração e segmentação de questões — Issue #3
+
+O projeto possui um extrator em Python capaz de identificar e segmentar questões de provas do ENADE, gerando arquivos JSON individuais.
+
+### Funcionalidades implementadas
+
+- Extração textual de documentos PDF utilizando PyMuPDF.
+- Identificação de questões objetivas e discursivas.
+- Tratamento de questões distribuídas entre páginas.
+- Identificação de questões em duas colunas.
+- Separação das alternativas A–E quando reconhecíveis.
+- Registro do arquivo e das páginas de origem.
+- Sinalização de questões que precisam de revisão.
+
+### Instalação
+
+Na raiz do repositório, instale as dependências:
+
+```powershell
+python -m pip install -r extractor/requirements.txt
+```
+
+### Execução
+
+Após baixar a prova ENADE 2021 de Sistemas de Informação e colocá-la no caminho indicado no catálogo, execute:
+
+```powershell
+python -m extractor.gerar_questoes
+```
+
+Os JSONs serão gerados em:
+
+`data/processed/enade/2021/sistemas_de_informacao/questoes/`
+
+### Testes automatizados
+
+```powershell
+python -m unittest extractor.test_segmenter -v
+```
+
+### Exemplos de questões extraídas
+
+O diretório `extractor/exemplos/` contém dois arquivos JSON
+gerados a partir da prova ENADE 2021 de Sistemas de Informação:
+
+- `objetiva_01.json`: exemplo de questão objetiva,
+  com enunciado, alternativas A–E e rastreabilidade.
+- `discursiva_01.json`: exemplo de questão discursiva,
+  sem alternativas e com registro da página de origem.
+
+Os exemplos preservam a saída textual do extrator,
+incluindo eventuais imperfeições de espaçamento do PDF.
+
+O processamento também identifica páginas finais compostas
+exclusivamente por rascunho, evitando incluí-las no intervalo
+de conteúdo das questões.
+
+A comparação visual com a prova original foi realizada
+para as questões objetiva 01 e discursiva 01.
+
+### Resultados e limitações
+
+Na prova ENADE 2021 de Sistemas de Informação, foram identificadas e exportadas 40 questões: 35 objetivas e 5 discursivas.
+
+As alternativas A–E foram identificadas em 34 questões objetivas.
+
+A questão objetiva 33 possui alternativas em formato de tabelas e foi sinalizada para revisão.
+
+A extração é predominantemente textual. Imagens, diagramas e mapas não são reconstruídos nos JSONs, e a formatação de consultas SQL pode ser simplificada.
+
+Os JSONs gerados são intermediários e ainda precisam ser integrados ao Schema definitivo da Issue #1.
+
+Os arquivos produzidos em `data/processed/` são ignorados pelo Git e podem ser reproduzidos executando o extrator.
 
 ## Próximos passos
 
-- Issue #49: integração com Elasticsearch.
-- Persistência definitiva das questões estruturadas.
-- Garantia de idempotência no destino.
-- Integração com API e mecanismos de consulta.
+- Compatibilização dos JSONs intermediários da extração (Issue #3) com o Schema canônico (Issue #1 / Issue #47) para integração posterior ao pipeline Kafka → Elasticsearch.
+- Evoluções incrementais da Issue #49: ampliação de filtros (área, competência e outros metadados) e expansão da busca textual para texto-base e alternativas.
+- Integração com API, cache com Redis e mecanismos de consulta.
 - Ampliação das funcionalidades de segurança e observabilidade.
 
 ## Disciplina
