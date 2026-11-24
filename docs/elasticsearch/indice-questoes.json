@@ -1,0 +1,66 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": { "type": "keyword" },
+      "area": {
+        "type": "keyword",
+        "fields": {
+          "texto": { "type": "text", "analyzer": "brazilian" }
+        }
+      },
+      "curso": {
+        "type": "keyword",
+        "fields": {
+          "texto": { "type": "text", "analyzer": "brazilian" }
+        }
+      },
+      "ano": { "type": "integer" },
+      "numero_questao": { "type": "integer" },
+      "tipo_conteudo": { "type": "keyword" },
+      "tipo_questao": { "type": "keyword" },
+      "texto_base": {
+        "type": "text",
+        "analyzer": "brazilian"
+      },
+      "enunciado": {
+        "type": "text",
+        "analyzer": "brazilian"
+      },
+      "alternativas": {
+        "type": "nested",
+        "properties": {
+          "letra": { "type": "keyword" },
+          "texto": {
+            "type": "text",
+            "analyzer": "brazilian"
+          }
+        }
+      },
+      "gabarito": { "type": "keyword" },
+      "anulada": { "type": "boolean" },
+      "objetos_conhecimento": {
+        "type": "keyword",
+        "fields": {
+          "texto": { "type": "text", "analyzer": "brazilian" }
+        }
+      },
+      "competencias": {
+        "type": "keyword",
+        "fields": {
+          "texto": { "type": "text", "analyzer": "brazilian" }
+        }
+      },
+      "origem": {
+        "properties": {
+          "arquivo": { "type": "keyword" },
+          "pagina": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
