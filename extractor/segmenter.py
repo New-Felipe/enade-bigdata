@@ -243,6 +243,7 @@ def identificar_questoes_em_colunas(texto_pagina, colunas, numero_pagina):
         texto = limpar_texto_pagina(
             colunas[nome_coluna],
             numero_pagina,
+            coluna=nome_coluna,
         )
 
         for linha in texto.splitlines():
@@ -278,6 +279,7 @@ def segmentar_questao_em_coluna(
     texto = limpar_texto_pagina(
         colunas[nome_coluna],
         numero_pagina,
+        coluna=nome_coluna,
     )
 
     linhas = texto.splitlines()

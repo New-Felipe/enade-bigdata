@@ -56,8 +56,11 @@ def extrair_colunas(caminho_pdf, numero_pagina):
             },
         }
 
-def limpar_texto_pagina(texto, numero_pagina):
+def limpar_texto_pagina(texto, numero_pagina, coluna=None):
     """Remove identificadores e rodapes conhecidos das provas ENADE."""
+    if coluna not in (None, "esquerda", "direita"):
+        raise ValueError("Nome de coluna invalido.")
+
     linhas = texto.splitlines()
     linhas_limpas = []
 
@@ -69,9 +72,21 @@ def limpar_texto_pagina(texto, numero_pagina):
         re.IGNORECASE,
     )
 
-    # Fragmento do rodape na coluna direita.
-    padrao_rodape_parcial = re.compile(
+    # Fragmentos de rodape gerados pela divisao em duas colunas.
+    padrao_rodape_direita_impar = re.compile(
         rf"^informa(?:ção|cao)\s+{numero_pagina}$",
+        re.IGNORECASE,
+    )
+    padrao_rodape_esquerda_par = re.compile(
+        rf"^{numero_pagina}\s+Sistemas de$",
+        re.IGNORECASE,
+    )
+    padrao_rodape_esquerda_impar = re.compile(
+        r"^Sistemas de$",
+        re.IGNORECASE,
+    )
+    padrao_rodape_direita_par = re.compile(
+        r"^informa(?:ção|cao)$",
         re.IGNORECASE,
     )
 
@@ -79,6 +94,10 @@ def limpar_texto_pagina(texto, numero_pagina):
         (i for i, linha in enumerate(linhas) if linha.strip()),
         default=-1,
     )
+    linha_anterior_vazia = (
+        ultima_linha > 0 and not linhas[ultima_linha - 1].strip()
+    )
+    pagina_par = numero_pagina % 2 == 0
 
     for indice, linha in enumerate(linhas):
         conteudo = linha.strip()
@@ -89,11 +108,36 @@ def limpar_texto_pagina(texto, numero_pagina):
         if padrao_rodape.fullmatch(conteudo):
             continue
 
-        if (
-            indice == ultima_linha
-            and padrao_rodape_parcial.fullmatch(conteudo)
-        ):
-            continue
+        if indice == ultima_linha:
+            if coluna is None and (
+                padrao_rodape_direita_impar.fullmatch(conteudo)
+                or padrao_rodape_esquerda_par.fullmatch(conteudo)
+            ):
+                continue
+
+            if coluna == "esquerda":
+                if pagina_par and padrao_rodape_esquerda_par.fullmatch(
+                    conteudo
+                ):
+                    continue
+                if (
+                    not pagina_par
+                    and linha_anterior_vazia
+                    and padrao_rodape_esquerda_impar.fullmatch(conteudo)
+                ):
+                    continue
+
+            if coluna == "direita":
+                if (
+                    pagina_par
+                    and linha_anterior_vazia
+                    and padrao_rodape_direita_par.fullmatch(conteudo)
+                ):
+                    continue
+                if not pagina_par and padrao_rodape_direita_impar.fullmatch(
+                    conteudo
+                ):
+                    continue
 
         linhas_limpas.append(linha)
 

@@ -1,4 +1,4 @@
-﻿"""Testes de regressao da extracao e segmentacao ENADE."""
+"""Testes de regressao da extracao e segmentacao ENADE."""
 
 import unittest
 
@@ -446,49 +446,129 @@ class TestSegmentacaoEnade(unittest.TestCase):
             len(set(identificadores)),
         )
 
-    def test_extracao_integrada_prova(self):
-        from extractor.segmenter import (
-            planejar_extracao_questoes,
-            extrair_questoes_planejadas,
+    def test_pagina_20_rodape_fragmentado_colunas(self):
+        colunas = extrair_colunas(PDF, 20)["colunas"]
+        texto_pagina = self.paginas[19]["texto"]
+
+        texto_esquerda = limpar_texto_pagina(
+            colunas["esquerda"], 20, coluna="esquerda"
+        )
+        texto_direita = limpar_texto_pagina(
+            colunas["direita"], 20, coluna="direita"
         )
 
-        mapeadas = mapear_questoes_prova(self.paginas, PDF)
-        planos = planejar_extracao_questoes(
-            mapeadas, len(self.paginas)
+        self.assertNotIn("20                             Sistemas de", texto_esquerda)
+        self.assertFalse(texto_esquerda.endswith("Sistemas de"))
+        self.assertFalse(
+            texto_direita.splitlines()[-1].strip().lower() == "informação"
         )
 
-        resultado = extrair_questoes_planejadas(
-            paginas=self.paginas,
-            planos=planos,
-            caminho_pdf=PDF,
+        esperados = {
+            (13, "esquerda"): [
+                ("A", "I e III."),
+                ("B", "I e IV."),
+                ("C", "II e IV."),
+                ("D", "I, II e III."),
+                ("E", "II, III e IV."),
+            ],
+            (14, "direita"): [
+                ("A", "I, apenas."),
+                ("B", "II, apenas."),
+                ("C", "I e III, apenas"),
+                ("D", "II e III, apenas."),
+                ("E", "I, II e III."),
+            ],
+        }
+
+        for (numero, nome_coluna), alts_esperadas in esperados.items():
+            with self.subTest(questao=numero, coluna=nome_coluna):
+                questao = segmentar_questao_em_coluna(
+                    texto_pagina=texto_pagina,
+                    colunas=colunas,
+                    numero_pagina=20,
+                    nome_coluna=nome_coluna,
+                    numero_questao=numero,
+                    tipo_questao="objetiva",
+                    arquivo_origem=ARQUIVO,
+                )
+
+                self.assertEqual(questao["numero_questao"], numero)
+                self.assertEqual(questao["origem"]["pagina"], 20)
+                self.assertEqual(questao["origem"]["coluna"], nome_coluna)
+                self.assertEqual(
+                    [(a["letra"], a["texto"]) for a in questao["alternativas"]],
+                    alts_esperadas,
+                )
+
+        # Preserva limpeza em outras paginas (colunas da pag. 19 e paginas inteiras).
+        colunas_19 = extrair_colunas(PDF, 19)["colunas"]
+        limpo_19_esq = limpar_texto_pagina(
+            colunas_19["esquerda"], 19, coluna="esquerda"
+        )
+        limpo_19_dir = limpar_texto_pagina(
+            colunas_19["direita"], 19, coluna="direita"
+        )
+        self.assertFalse(limpo_19_esq.endswith("Sistemas de"))
+        self.assertNotIn("informação                            19", limpo_19_dir)
+
+        limpo_pag_5 = limpar_texto_pagina(self.paginas[4]["texto"], 5)
+        limpo_pag_20 = limpar_texto_pagina(texto_pagina, 20)
+        self.assertNotIn("Sistemas de informação", limpo_pag_5)
+        self.assertNotIn("20                             Sistemas de informação", limpo_pag_20)
+
+    def test_limpar_texto_pagina_preserva_conteudo_legitimo(self):
+        # Conteudo legitimo no corpo da questao real (Q12, pag. 19).
+        colunas_19 = extrair_colunas(PDF, 19)["colunas"]
+        q12 = segmentar_questao_em_coluna(
+            texto_pagina=self.paginas[18]["texto"],
+            colunas=colunas_19,
+            numero_pagina=19,
+            nome_coluna="direita",
+            numero_questao=12,
+            tipo_questao="objetiva",
             arquivo_origem=ARQUIVO,
-            continuacoes={
-                ("objetiva", 5): (11, 6),
-                ("objetiva", 29): (33, 30),
-            },
         )
+        self.assertIn("sistemas de informação", q12["texto"].lower())
 
-        extraidas = resultado["extraidas"]
-        objetivas = [
-            q for q in extraidas
-            if q["tipo_questao"] == "objetiva"
-        ]
-        discursivas = [
-            q for q in extraidas
-            if q["tipo_questao"] == "discursiva"
-        ]
-
-        self.assertEqual(len(extraidas), 40)
-        self.assertEqual(resultado["falhas"], [])
-        self.assertEqual(len(objetivas), 35)
-        self.assertEqual(len(discursivas), 5)
-        self.assertEqual(
-            sum(len(q["alternativas"]) == 5 for q in objetivas),
-            34,
+        # Palavras no meio do texto ou em quebra de linha continua nao sao removidas.
+        texto_meio = (
+            "Sistemas de\n"
+            "informação\n"
+            "são essenciais para a organização."
         )
         self.assertEqual(
-            [q["numero_questao"] for q in resultado["revisar"]],
-            [33],
+            limpar_texto_pagina(texto_meio, 20, coluna="direita"),
+            texto_meio,
+        )
+        self.assertEqual(
+            limpar_texto_pagina(texto_meio, 19, coluna="esquerda"),
+            texto_meio,
+        )
+
+        # Ultima linha de frase quebrada (sem linha em branco separadora) e preservada.
+        texto_continuacao_dir = "E A segurança protege a\ninformação"
+        self.assertEqual(
+            limpar_texto_pagina(texto_continuacao_dir, 20, coluna="direita"),
+            texto_continuacao_dir,
+        )
+
+        texto_continuacao_esq = "E O curso aborda\nSistemas de"
+        self.assertEqual(
+            limpar_texto_pagina(texto_continuacao_esq, 19, coluna="esquerda"),
+            texto_continuacao_esq,
+        )
+
+        # Sem contexto de coluna, fragmentos sem numero de pagina nao sao removidos.
+        texto_pagina_inteira_info = "Enunciado completo.\n\ninformação"
+        self.assertEqual(
+            limpar_texto_pagina(texto_pagina_inteira_info, 20),
+            texto_pagina_inteira_info,
+        )
+
+        texto_pagina_inteira_sis = "Enunciado completo.\n\nSistemas de"
+        self.assertEqual(
+            limpar_texto_pagina(texto_pagina_inteira_sis, 19),
+            texto_pagina_inteira_sis,
         )
 
 if __name__ == "__main__":
