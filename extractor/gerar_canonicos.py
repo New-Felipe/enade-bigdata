@@ -10,6 +10,7 @@ from extractor.conversor import converter_questao_canonica
 from extractor.extractor import extrair_paginas
 from extractor.gabarito import interpretar_gabarito
 from scripts.validar_modelo import CAMINHO_SCHEMA, validar_documento
+from extractor.recuperacao import recuperar_questao_33
 
 
 BASE = Path("data/processed/enade/2021/sistemas_de_informacao")
@@ -23,6 +24,10 @@ GABARITO_PDF = Path(
     "enade_2021_sistemas_de_informacao_gabarito.pdf"
 )
 
+PROVA_PDF = Path(
+    "data/raw/enade/2021/sistemas_de_informacao/"
+    "enade_2021_sistemas_de_informacao_prova.pdf"
+)
 
 def main():
     arquivos = sorted(ENTRADA.glob("*.json"))
@@ -49,7 +54,34 @@ def main():
 
         status = questao.get("validacao_extracao", {}).get("status")
 
-        if status != "extraido_textualmente":
+        recuperacao_33 = (
+            questao.get("numero_questao") == 33
+            and questao.get("tipo_questao") == "objetiva"
+            and status == "revisao_necessaria"
+            and questao.get("origem", {}).get("pagina") == 36
+            and questao.get("pagina_final") == 37
+            and questao.get("origem", {}).get("arquivo") == PROVA_PDF.name
+        )
+
+        if recuperacao_33:
+            try:
+                questao = recuperar_questao_33(
+                    questao,
+                    PROVA_PDF,
+                    SAIDA / "imagens",
+                )
+                status = "recuperado_com_imagens"
+            except (ValueError, OSError) as erro:
+                pendentes.append({
+                    "arquivo": arquivo.name,
+                    "motivo": f"Falha na recuperacao: {erro}",
+                })
+                continue
+
+        if status not in (
+            "extraido_textualmente",
+            "recuperado_com_imagens",
+        ):
             pendentes.append({
                 "arquivo": arquivo.name,
                 "motivo": f"Extracao: {status}",
@@ -83,7 +115,6 @@ def main():
                 "motivo": str(erro),
             })
 
-    # So inicia a exportacao apos analisar todas as questoes.
     SAIDA.mkdir(parents=True, exist_ok=True)
 
     for identificador, documento in sorted(aprovadas.items()):
