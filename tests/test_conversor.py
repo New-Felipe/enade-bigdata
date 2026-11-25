@@ -122,6 +122,112 @@ class TestConversor(unittest.TestCase):
         with self.assertRaises(KeyError):
             converter_questao_canonica(self.questao, 2021)
 
+    def test_preserva_alternativas_graficas_questao_anulada(self):
+        """Questao anulada deve preservar referencias aos diagramas."""
+
+        self.questao["numero_questao"] = 33
+        self.questao["anulada"] = True
+        self.questao["gabarito"] = None
+
+        self.questao["alternativas"] = [
+            {
+                "letra": letra,
+                "imagem": f"imagens/questao_33_{letra}.png",
+            }
+            for letra in "ABCDE"
+        ]
+
+        documento = converter_questao_canonica(
+            self.questao, 2021
+        )
+
+        self.assertTrue(documento["anulada"])
+        self.assertIsNone(documento["gabarito"])
+        self.assertEqual(len(documento["alternativas"]), 5)
+
+        for letra, alternativa in zip(
+            "ABCDE", documento["alternativas"]
+        ):
+            self.assertEqual(alternativa["letra"], letra)
+            self.assertEqual(
+                alternativa["imagem"],
+                f"imagens/questao_33_{letra}.png",
+            )
+
+        erros = validar_documento(self.validador, documento)
+        self.assertEqual(erros, [])
+
+    def test_valida_conteudo_de_alternativas_graficas(self):
+        """Aceita imagens validas e rejeita alternativas incompletas."""
+
+        self.questao["numero_questao"] = 33
+        self.questao["anulada"] = True
+        self.questao["gabarito"] = None
+
+        casos = [
+            (
+                "somente imagem",
+                {"letra": "A", "imagem": "imagens/questao_33_A.png"},
+                True,
+            ),
+            (
+                "texto e imagem",
+                {
+                    "letra": "A",
+                    "texto": "Diagrama da tabela hash.",
+                    "imagem": "imagens/questao_33_A.png",
+                },
+                True,
+            ),
+            (
+                "sem texto ou imagem",
+                {"letra": "A"},
+                False,
+            ),
+            (
+                "imagem vazia",
+                {"letra": "A", "imagem": ""},
+                False,
+            ),
+            (
+                "imagem somente espacos",
+                {"letra": "A", "imagem": "   "},
+                False,
+            ),
+            (
+                "texto vazio com imagem valida",
+                {
+                    "letra": "A",
+                    "texto": "",
+                    "imagem": "imagens/questao_33_A.png",
+                },
+                False,
+            ),
+        ]
+
+        for nome, alternativa, esperado_valido in casos:
+            with self.subTest(caso=nome):
+                self.questao["alternativas"] = [
+                    alternativa,
+                    {"letra": "B", "texto": "Outra alternativa."},
+                ]
+
+                documento = converter_questao_canonica(
+                    self.questao, 2021
+                )
+
+                erros = validar_documento(
+                    self.validador, documento
+                )
+
+                if esperado_valido:
+                    self.assertEqual(erros, [])
+                else:
+                    self.assertTrue(
+                        erros,
+                        f"O caso {nome!r} deveria ser rejeitado.",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

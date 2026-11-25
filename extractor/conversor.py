@@ -27,7 +27,11 @@ def converter_questao_canonica(questao, ano):
         "alternativas": [
             {
                 "letra": alternativa["letra"],
-                "texto": alternativa["texto"],
+                **{
+                    campo: alternativa[campo]
+                    for campo in ("texto", "imagem")
+                    if campo in alternativa
+                },
             }
             for alternativa in questao["alternativas"]
         ],
