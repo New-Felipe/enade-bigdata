@@ -884,10 +884,10 @@ Os JSONs intermediários não devem ser validados diretamente contra o schema ca
 
 ## Próximos passos
 
-- Integrar os 40 documentos canônicos do ENADE 2017 ao fluxo de publicação Kafka e indexação no Elasticsearch, validando o processamento de ponta a ponta.
-- Evoluir as funcionalidades da Issue #49, ampliando os filtros por área, competência e outros metadados, além da busca textual em alternativas e textos-base.
-- Integrar os serviços à API e implementar mecanismos de cache com Redis.
-- Ampliar as funcionalidades de segurança, monitoramento e observabilidade do sistema.
+- Compatibilização dos JSONs intermediários da extração (Issue #3) com o Schema canônico (Issue #1 / Issue #47) para integração posterior ao pipeline Kafka → Elasticsearch.
+- Evoluções incrementais da Issue #49: ampliação de filtros (área, competência e outros metadados) e expansão da busca textual para texto-base e alternativas.
+- Integração com API, cache com Redis e mecanismos de consulta.
+- Ampliação das funcionalidades de segurança e observabilidade.
 
 ## Disciplina
 
