@@ -640,6 +640,8 @@ def extrair_questoes_planejadas(
     caminho_pdf,
     arquivo_origem,
     continuacoes=None,
+    recuperador_ocr=None,
+    priorizar_ocr=False,
 ):
     """Integra os metodos de extracao conforme o mapeamento."""
 
@@ -663,6 +665,52 @@ def extrair_questoes_planejadas(
         tipo = plano["tipo_questao"]
         pagina = plano["pagina_inicial"]
         chave = (tipo, numero)
+
+        # Prioriza OCR apenas quando solicitado explicitamente.
+        # Por padrao, preserva a extracao convencional.
+        if (
+            priorizar_ocr
+            and recuperador_ocr is not None
+            and tipo in ("objetiva", "discursiva")
+        ):
+            try:
+                candidata = recuperador_ocr(
+                    plano, caminho_pdf, arquivo_origem
+                )
+                if isinstance(candidata, dict):
+                    alternativas = candidata.get("alternativas")
+                    texto = candidata.get("texto")
+                    valida = (
+                        candidata.get("numero_questao") == numero
+                        and candidata.get("tipo_questao") == tipo
+                        and isinstance(texto, str)
+                        and bool(texto.strip())
+                        and isinstance(alternativas, list)
+                        and len(alternativas) == (
+                            5 if tipo == "objetiva" else 0
+                        )
+                        and all(
+                            isinstance(a, dict)
+                            for a in alternativas
+                        )
+                        and [
+                            a["letra"]
+                            for a in alternativas
+                        ] == (
+                            list("ABCDE") if tipo == "objetiva" else []
+                        )
+                        and all(
+                            isinstance(a.get("texto"), str)
+                            and bool(a["texto"].strip())
+                            for a in alternativas
+                        )
+                    )
+                    if valida:
+                        extraidas.append(candidata)
+                        continue
+            except (ValueError, OSError, KeyError, TypeError):
+                # Mantem a extracao convencional como alternativa.
+                pass
 
         try:
             if chave in continuacoes:
@@ -726,9 +774,51 @@ def extrair_questoes_planejadas(
                     arquivo_origem=arquivo_origem,
                 )
 
+            if (
+                recuperador_ocr is not None
+                and tipo == "objetiva"
+                and len(questao["alternativas"]) != 5
+            ):
+                try:
+                    recuperada = recuperador_ocr(
+                        plano, caminho_pdf, arquivo_origem
+                    )
+                    if (
+                        isinstance(recuperada, dict)
+                        and recuperada.get("numero_questao") == numero
+                        and recuperada.get("tipo_questao") == tipo
+                        and len(recuperada.get("alternativas", [])) == 5
+                    ):
+                        questao = recuperada
+                except (ValueError, OSError):
+                    # Preserva a questao original para revisao.
+                    pass
             extraidas.append(questao)
 
         except ValueError as erro:
+            if recuperador_ocr is not None:
+                try:
+                    recuperada = recuperador_ocr(
+                        plano, caminho_pdf, arquivo_origem
+                    )
+                    if not isinstance(recuperada, dict):
+                        raise ValueError(
+                            "Recuperador OCR retornou resultado invalido."
+                        )
+                    if (
+                        recuperada.get("numero_questao") != numero
+                        or recuperada.get("tipo_questao") != tipo
+                    ):
+                        raise ValueError(
+                            "Recuperador OCR retornou outra questao."
+                        )
+                    extraidas.append(recuperada)
+                    continue
+                except (ValueError, OSError) as erro_ocr:
+                    erro = ValueError(
+                        f"Extracao convencional: {erro}; "
+                        f"Recuperacao OCR: {erro_ocr}"
+                    )
             falhas.append({
                 "tipo_questao": tipo,
                 "numero_questao": numero,

@@ -1,4 +1,4 @@
-﻿"""Recuperacao de alternativas textuais usando OCR."""
+"""Recuperacao de alternativas textuais usando OCR."""
 from pathlib import Path
 import pymupdf
 from extractor.localizacao_alternativas import (
@@ -13,6 +13,7 @@ def recuperar_alternativas_ocr(
     deslocamento_texto,
     margem_direita,
     altura_ultima,
+    coluna=None,
 ):
     """Recupera alternativas A-E de um grupo identificado.
     Os parametros de recorte devem ser calibrados para
@@ -23,14 +24,53 @@ def recuperar_alternativas_ocr(
         pdf,
         numero_pagina,
     )
-    if len(grupos) != 1:
-        raise ValueError(
-            "Esperado exatamente um grupo A-E na pagina; "
-            f"encontrados {len(grupos)}."
-        )
-    grupo = grupos[0]
     with pymupdf.open(pdf) as documento:
         largura = documento[numero_pagina - 1].rect.width
+    centro = largura / 2
+    if coluna is None:
+        if len(grupos) != 1:
+            raise ValueError(
+                "Esperado exatamente um grupo A-E na pagina; "
+                f"encontrados {len(grupos)}."
+            )
+        grupo = grupos[0]
+    elif coluna in ("esquerda", "direita"):
+        candidatos = []
+        for candidato in grupos:
+            if not candidato:
+                continue
+            if [
+                item.get("letra") for item in candidato
+            ] != list("ABCDE"):
+                continue
+            posicoes = [item.get("x") for item in candidato]
+            if not all(
+                isinstance(x, (int, float))
+                for x in posicoes
+            ):
+                continue
+            pertence = (
+                all(x < centro for x in posicoes)
+                if coluna == "esquerda"
+                else all(x >= centro for x in posicoes)
+            )
+            if pertence:
+                candidatos.append(candidato)
+        if len(candidatos) != 1:
+            raise ValueError(
+                f"Esperado um grupo A-E na coluna {coluna}; "
+                f"encontrados {len(candidatos)}."
+            )
+        grupo = candidatos[0]
+    else:
+        raise ValueError(
+            "Coluna invalida. Use esquerda, direita ou None."
+        )
+    limite_direito = (
+        centro
+        if coluna == "esquerda"
+        else largura - margem_direita
+    )
     alternativas = []
     for indice, marcador in enumerate(grupo):
         letra = marcador["letra"]
@@ -43,9 +83,16 @@ def recuperar_alternativas_ocr(
         regiao = (
             x + deslocamento_texto,
             y - 2,
-            largura - margem_direita,
+            limite_direito,
             limite_inferior,
         )
+        if (
+            regiao[0] >= regiao[2]
+            or regiao[1] >= regiao[3]
+        ):
+            raise ValueError(
+                f"Recorte invalido para alternativa {letra}."
+            )
         texto = extrair_regiao_ocr(
             caminho_pdf=pdf,
             numero_pagina=numero_pagina,
