@@ -47,7 +47,11 @@ def anexar_imagem_enunciado(
             clip=area,
             alpha=False,
         )
-        destino = pasta / "imagens" / nome_arquivo
+        pasta_imagens = (
+            pasta if pasta.name == "imagens"
+            else pasta / "imagens"
+        )
+        destino = pasta_imagens / nome_arquivo
         destino.parent.mkdir(
             parents=True,
             exist_ok=True,
@@ -115,7 +119,11 @@ def anexar_imagem_incorporada_enunciado(
                 pymupdf.csRGB,
                 imagem,
             )
-        pasta_imagens = Path(pasta_saida) / "imagens"
+        pasta = Path(pasta_saida)
+        pasta_imagens = (
+            pasta if pasta.name == "imagens"
+            else pasta / "imagens"
+        )
         pasta_imagens.mkdir(parents=True, exist_ok=True)
         destino = pasta_imagens / nome_arquivo
         imagem.save(str(destino))

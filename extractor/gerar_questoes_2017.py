@@ -2,12 +2,17 @@
 from functools import partial
 from pathlib import Path
 from extractor.extractor import extrair_paginas
-from extractor.recuperacao_discursiva_04_2017 import (
+from extractor.recuperacao_alternativas_visuais import (
+    recuperar_alternativas_visuais_duas_colunas,
+)
+from extractor.recuperacao_discursivas_2017 import (
     recuperar_discursiva_04_2017,
+    recuperar_discursiva_05_2017,
 )
 from extractor.gerador_json import salvar_questoes_json
-from extractor.recuperacao_questao_04_2017 import (
+from extractor.recuperacao_objetivas_especiais_2017 import (
     recuperar_questao_04_2017,
+    recuperar_questao_21_2017,
 )
 from extractor.recuperacao_questao_imagem import (
     recuperar_questao_com_imagem_incorporada,
@@ -52,11 +57,35 @@ def recuperar_questao_2017(
             executavel_tesseract=executavel_tesseract,
             pasta_saida=pasta_saida,
         )
+    if (
+        plano["tipo_questao"] == "discursiva"
+        and plano["numero_questao"] == 5
+    ):
+        return recuperar_discursiva_05_2017(
+            plano=plano,
+            caminho_pdf=caminho_pdf,
+            arquivo_origem=arquivo_origem,
+            executavel_tesseract=executavel_tesseract,
+            pasta_saida=pasta_saida,
+        )
     if plano["tipo_questao"] != "objetiva":
         raise ValueError(
             "Recuperacao OCR de discursivas ainda nao implementada."
         )
     numero = plano["numero_questao"]
+    if numero == 21:
+        # A questao 21 continua na pagina 27, antes da questao 22.
+        # Ajusta apenas uma copia do plano original.
+        plano_21 = dict(plano)
+        plano_21["pagina_final_candidata"] = 27
+        plano_21["multiplas_paginas"] = True
+        return recuperar_questao_21_2017(
+            plano=plano_21,
+            caminho_pdf=caminho_pdf,
+            arquivo_origem=arquivo_origem,
+            executavel_tesseract=executavel_tesseract,
+            pasta_saida=pasta_saida,
+        )
     if numero == 4:
         questao = recuperar_questao_04_2017(
             caminho_pdf=caminho_pdf,
@@ -139,6 +168,51 @@ def main(
     extraidas = resultado["extraidas"]
     falhas = resultado["falhas"]
     revisar = resultado["revisar"]
+    # Recupera as alternativas visuais da objetiva 20.
+    pendente_20 = any(
+        item["tipo_questao"] == "objetiva"
+        and item["numero_questao"] == 20
+        for item in revisar
+    )
+    if pendente_20:
+        encontradas = [
+            questao for questao in extraidas
+            if questao["tipo_questao"] == "objetiva"
+            and questao["numero_questao"] == 20
+        ]
+        if len(encontradas) != 1:
+            raise RuntimeError(
+                "Objetiva 20 nao encontrada de forma unica."
+            )
+        questao_20 = encontradas[0]
+        if questao_20["origem"]["pagina"] != 25:
+            raise RuntimeError(
+                "Pagina inesperada para a objetiva 20."
+            )
+        alternativas = (
+            recuperar_alternativas_visuais_duas_colunas(
+                caminho_pdf=PDF,
+                numero_pagina=25,
+                numero_questao=20,
+                pasta_saida=SAIDA,
+            )
+        )
+        if (
+            len(alternativas) != 5
+            or [a["letra"] for a in alternativas] != list("ABCDE")
+            or not all(a.get("imagem") for a in alternativas)
+        ):
+            raise RuntimeError(
+                "Alternativas visuais da objetiva 20 invalidas."
+            )
+        questao_20["alternativas"] = alternativas
+        revisar = [
+            item for item in revisar
+            if not (
+                item["tipo_questao"] == "objetiva"
+                and item["numero_questao"] == 20
+            )
+        ]
     if falhas or revisar or len(extraidas) != 40:
         detalhes = [
             f"{item['tipo_questao']} "
