@@ -38,7 +38,7 @@ def localizar_grupos_alternativas(caminho_pdf, numero_pagina):
                     if (
                         item[0] == letra_esperada
                         and abs(item[1] - x_referencia) <= 3
-                        and 10 <= item[2] - y_anterior <= 45
+                        and 10 <= item[2] - y_anterior <= 75
                     )
                 ]
                 if not candidatos:
@@ -48,6 +48,14 @@ def localizar_grupos_alternativas(caminho_pdf, numero_pagina):
                 )
             if len(grupo) != 5:
                 continue
+            intervalos = [
+                grupo[indice + 1][2] - grupo[indice][2]
+                for indice in range(4)
+            ]
+
+            if max(intervalos) > 1.6 * min(intervalos):
+                continue
+
             assinatura = tuple(grupo)
             if assinatura in assinaturas:
                 continue
