@@ -740,6 +740,148 @@ Os JSONs gerados são intermediários e ainda precisam ser integrados ao Schema 
 
 Os arquivos produzidos em `data/processed/` são ignorados pelo Git e podem ser reproduzidos executando o extrator.
 
+## Processamento do ENADE 2017 — Issue #47
+
+O projeto possui um pipeline para processamento da prova do ENADE 2017 de Sistemas de Informação, utilizando extração textual com PyMuPDF, reconhecimento óptico de caracteres (OCR) com Tesseract e recuperação de conteúdos visuais.
+
+O processamento contempla questões objetivas e discursivas, preservando seus enunciados, alternativas, imagens e informações de origem.
+
+### Pré-requisitos
+
+- Python com as dependências do extrator instaladas.
+- Tesseract OCR instalado, com suporte ao idioma português.
+- Arquivos oficiais da prova e do gabarito do ENADE 2017.
+
+Os PDFs devem estar organizados em:
+
+```text
+data/raw/enade/2017/sistemas_de_informacao/
+├── enade_2017_sistemas_de_informacao_prova.pdf
+└── enade_2017_sistemas_de_informacao_gabarito.pdf
+```
+
+O extrator utiliza, por padrão, o executável do Tesseract no caminho `C:\Program Files\Tesseract-OCR\tesseract.exe`. Em outros ambientes, esse caminho deve ser ajustado.
+
+### 1. Extração das questões intermediárias
+
+Na raiz do projeto, execute:
+
+```powershell
+python -m extractor.gerar_questoes_2017
+```
+
+Esse procedimento realiza o mapeamento da prova, a segmentação das questões e a recuperação dos conteúdos que necessitam de OCR ou tratamento específico.
+
+Os arquivos JSON intermediários são gerados em:
+
+`data/processed/enade/2017/sistemas_de_informacao/questoes/`
+
+O processamento contempla 35 questões objetivas e cinco discursivas, totalizando 40 questões.
+
+### 2. Simulação da conversão canônica
+
+Antes de gerar os documentos definitivos, execute:
+
+```powershell
+python -m extractor.gerar_canonicos_2017
+```
+
+Por padrão, esse comando funciona em modo de simulação, realizando:
+
+- Associação das questões ao gabarito oficial.
+- Classificação em Formação Geral (FG) e Componente Específico (CE).
+- Conversão para o modelo canônico do projeto.
+- Validação dos documentos com JSON Schema.
+- Verificação das imagens referenciadas.
+
+A simulação não grava novos arquivos JSON canônicos.
+
+### 3. Geração dos documentos canônicos
+
+Após validar a simulação, execute:
+
+```powershell
+python -c "from extractor.gerar_canonicos_2017 import main; main(gravar=True)"
+```
+
+Os documentos canônicos são gerados em:
+
+`data/processed/enade/2017/sistemas_de_informacao/questoes_canonicas/`
+
+O relatório de processamento é armazenado em:
+
+`data/processed/enade/2017/sistemas_de_informacao/relatorio_processamento.json`
+
+As imagens associadas aos documentos canônicos são armazenadas na subpasta `questoes_canonicas/imagens/`.
+
+### 4. Tratamento de questões especiais
+
+Algumas questões exigem recuperação específica para preservar informações que não podem ser obtidas corretamente apenas pela extração textual.
+
+Entre os tratamentos implementados estão:
+
+- Recuperação de uma tirinha na questão objetiva 04.
+- Preservação do infográfico da questão objetiva 05.
+- Extração das cinco alternativas visuais da questão objetiva 20.
+- Recuperação do diagrama UML e da continuação textual da questão objetiva 21, distribuída entre duas páginas.
+- Preservação da imagem do cafezal na questão discursiva 04.
+- Recuperação da tabela de competições da questão discursiva 05.
+
+O projeto utiliza módulos de recuperação especializados e testes automatizados para verificar esses casos.
+
+### 5. Associação do gabarito
+
+O gabarito oficial do ENADE 2017 contempla as 35 questões objetivas.
+
+A questão objetiva 14 está oficialmente anulada e é representada com os campos:
+
+- `gabarito: null`
+- `anulada: true`
+
+As cinco questões discursivas não possuem respostas de múltipla escolha no PDF de gabarito utilizado. Por esse motivo, são representadas com:
+
+- `alternativas: []`
+- `gabarito: null`
+- `anulada: false`
+
+Essa representação é compatível com o schema canônico do projeto.
+
+### 6. Testes automatizados
+
+Para executar a suíte completa de testes, utilize:
+
+```powershell
+python -m unittest discover -s tests -q
+```
+
+Os testes verificam a segmentação, a recuperação de conteúdos, o tratamento de imagens, a conversão dos documentos e outras funcionalidades do projeto.
+
+### Resultados obtidos
+
+Na execução e validação do processamento do ENADE 2017 de Sistemas de Informação, foram confirmados:
+
+| Indicador | Resultado |
+|---|---|
+| Questões identificadas e extraídas | 40 |
+| Questões objetivas | 35 |
+| Questões discursivas | 5 |
+| JSONs intermediários gerados | 40 |
+| JSONs canônicos gerados e validados | 40 |
+| Identificadores canônicos únicos | 40 |
+| Imagens referenciadas e disponíveis | 10 |
+| Pendências na validação final | 0 |
+| Testes automatizados aprovados | 175 |
+
+Os documentos canônicos foram validados conforme o schema do projeto, incluindo a verificação das questões, dos identificadores, das imagens e do relatório de processamento.
+
+### Armazenamento e versionamento
+
+Os arquivos produzidos em `data/processed/` são ignorados pelo Git, assim como os PDFs brutos armazenados em `data/raw/`.
+
+Para reproduzir o processamento em outro ambiente, é necessário disponibilizar os documentos oficiais nos caminhos esperados, instalar as dependências e executar as etapas de extração e conversão.
+
+Os JSONs intermediários não devem ser validados diretamente contra o schema canônico, pois representam uma estrutura anterior à conversão.
+
 ## Próximos passos
 
 - Compatibilização dos JSONs intermediários da extração (Issue #3) com o Schema canônico (Issue #1 / Issue #47) para integração posterior ao pipeline Kafka → Elasticsearch.

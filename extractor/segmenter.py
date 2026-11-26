@@ -374,7 +374,7 @@ def segmentar_questoes_na_mesma_pagina(
 
     return questoes
 
-def mapear_questoes_prova(paginas, caminho_pdf):
+def mapear_questoes_prova(paginas, caminho_pdf, executavel_tesseract=None):
     """Mapeia as questoes e suas localizacoes na prova."""
 
     questoes = []
@@ -386,6 +386,83 @@ def mapear_questoes_prova(paginas, caminho_pdf):
         if eh_pagina_questionario(texto):
             continue
 
+        if executavel_tesseract is not None:
+            import pymupdf
+            from extractor.ocr import extrair_regiao_ocr
+            with pymupdf.open(caminho_pdf) as documento:
+                pagina_pdf = documento[numero_pagina - 1]
+                largura = pagina_pdf.rect.width
+                altura = pagina_pdf.rect.height
+            meio = largura / 2
+            limite_inferior = min(145, altura - 25)
+            regioes = {
+                "esquerda": (
+                    25, 45, meio, limite_inferior
+                ),
+                "direita": (
+                    meio, 45, largura - 25, limite_inferior
+                ),
+            }
+            candidatos = []
+            for nome_coluna, regiao in regioes.items():
+                texto_ocr = extrair_regiao_ocr(
+                    caminho_pdf=caminho_pdf,
+                    numero_pagina=numero_pagina,
+                    regiao=regiao,
+                    executavel_tesseract=executavel_tesseract,
+                    dpi=300,
+                    psm=6,
+                )
+                for linha in texto_ocr.splitlines():
+                    titulo = identificar_titulo_ocr(linha)
+                    if titulo:
+                        candidatos.append({
+                            **titulo,
+                            "pagina": numero_pagina,
+                            "coluna": nome_coluna,
+                        })
+            colunas = extrair_colunas(
+                caminho_pdf, numero_pagina
+            )["colunas"]
+            candidatos.extend(
+                identificar_questoes_em_colunas(
+                    texto, colunas, numero_pagina
+                )
+            )
+            for linha in texto.splitlines():
+                titulo = identificar_titulo(linha)
+                if titulo:
+                    candidatos.append({
+                        **titulo,
+                        "pagina": numero_pagina,
+                        "coluna": None,
+                    })
+            unicas = {}
+            for candidato in candidatos:
+                chave = (
+                    candidato["tipo_questao"],
+                    candidato["numero_questao"],
+                )
+                anterior = unicas.get(chave)
+                if (
+                    anterior is None
+                    or (
+                        anterior["coluna"] is None
+                        and candidato["coluna"] is not None
+                    )
+                ):
+                    unicas[chave] = candidato
+            identificadas = sorted(
+                unicas.values(),
+                key=lambda item: (
+                    item["coluna"] == "direita",
+                    item["numero_questao"],
+                ),
+            )
+            if len(identificadas) == 1:
+                identificadas[0]["coluna"] = None
+            questoes.extend(identificadas)
+            continue
         titulos = [
             identificar_titulo(linha)
             for linha in texto.splitlines()
@@ -563,6 +640,8 @@ def extrair_questoes_planejadas(
     caminho_pdf,
     arquivo_origem,
     continuacoes=None,
+    recuperador_ocr=None,
+    priorizar_ocr=False,
 ):
     """Integra os metodos de extracao conforme o mapeamento."""
 
@@ -586,6 +665,52 @@ def extrair_questoes_planejadas(
         tipo = plano["tipo_questao"]
         pagina = plano["pagina_inicial"]
         chave = (tipo, numero)
+
+        # Prioriza OCR apenas quando solicitado explicitamente.
+        # Por padrao, preserva a extracao convencional.
+        if (
+            priorizar_ocr
+            and recuperador_ocr is not None
+            and tipo in ("objetiva", "discursiva")
+        ):
+            try:
+                candidata = recuperador_ocr(
+                    plano, caminho_pdf, arquivo_origem
+                )
+                if isinstance(candidata, dict):
+                    alternativas = candidata.get("alternativas")
+                    texto = candidata.get("texto")
+                    valida = (
+                        candidata.get("numero_questao") == numero
+                        and candidata.get("tipo_questao") == tipo
+                        and isinstance(texto, str)
+                        and bool(texto.strip())
+                        and isinstance(alternativas, list)
+                        and len(alternativas) == (
+                            5 if tipo == "objetiva" else 0
+                        )
+                        and all(
+                            isinstance(a, dict)
+                            for a in alternativas
+                        )
+                        and [
+                            a["letra"]
+                            for a in alternativas
+                        ] == (
+                            list("ABCDE") if tipo == "objetiva" else []
+                        )
+                        and all(
+                            isinstance(a.get("texto"), str)
+                            and bool(a["texto"].strip())
+                            for a in alternativas
+                        )
+                    )
+                    if valida:
+                        extraidas.append(candidata)
+                        continue
+            except (ValueError, OSError, KeyError, TypeError):
+                # Mantem a extracao convencional como alternativa.
+                pass
 
         try:
             if chave in continuacoes:
@@ -649,9 +774,51 @@ def extrair_questoes_planejadas(
                     arquivo_origem=arquivo_origem,
                 )
 
+            if (
+                recuperador_ocr is not None
+                and tipo == "objetiva"
+                and len(questao["alternativas"]) != 5
+            ):
+                try:
+                    recuperada = recuperador_ocr(
+                        plano, caminho_pdf, arquivo_origem
+                    )
+                    if (
+                        isinstance(recuperada, dict)
+                        and recuperada.get("numero_questao") == numero
+                        and recuperada.get("tipo_questao") == tipo
+                        and len(recuperada.get("alternativas", [])) == 5
+                    ):
+                        questao = recuperada
+                except (ValueError, OSError):
+                    # Preserva a questao original para revisao.
+                    pass
             extraidas.append(questao)
 
         except ValueError as erro:
+            if recuperador_ocr is not None:
+                try:
+                    recuperada = recuperador_ocr(
+                        plano, caminho_pdf, arquivo_origem
+                    )
+                    if not isinstance(recuperada, dict):
+                        raise ValueError(
+                            "Recuperador OCR retornou resultado invalido."
+                        )
+                    if (
+                        recuperada.get("numero_questao") != numero
+                        or recuperada.get("tipo_questao") != tipo
+                    ):
+                        raise ValueError(
+                            "Recuperador OCR retornou outra questao."
+                        )
+                    extraidas.append(recuperada)
+                    continue
+                except (ValueError, OSError) as erro_ocr:
+                    erro = ValueError(
+                        f"Extracao convencional: {erro}; "
+                        f"Recuperacao OCR: {erro_ocr}"
+                    )
             falhas.append({
                 "tipo_questao": tipo,
                 "numero_questao": numero,
@@ -673,4 +840,23 @@ def extrair_questoes_planejadas(
         "extraidas": extraidas,
         "falhas": falhas,
         "revisar": revisar,
+    }
+def identificar_titulo_ocr(linha):
+    """Identifica titulos OCR com separadores decorativos."""
+    titulo = identificar_titulo(linha)
+    if titulo is not None:
+        return titulo
+    normalizado = normalizar_texto(linha.strip())
+    padrao = re.compile(
+        r"^QUESTAO\s*(?:(DISCURSIVA)\s*)?(\d{1,2})"
+        r"(?:\s*[\u2013\u2014\u2015\u2500=>-]+)?$"
+    )
+    resultado = padrao.fullmatch(normalizado)
+    if not resultado:
+        return None
+    return {
+        "numero_questao": int(resultado.group(2)),
+        "tipo_questao": (
+            "discursiva" if resultado.group(1) else "objetiva"
+        ),
     }

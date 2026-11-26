@@ -4,7 +4,6 @@
   "description": "Modelo padrão para representação estruturada de uma questão do ENADE.",
   "type": "object",
   "additionalProperties": false,
-
   "required": [
     "id",
     "area",
@@ -21,13 +20,14 @@
     "competencias",
     "origem"
   ],
-
   "properties": {
     "id": {
       "type": "string",
       "pattern": "^enade-[a-z0-9]+(-[a-z0-9]+)*-[0-9]{4}-(fg|ce)-(obj|disc)-q[0-9]{2,}$",
       "description": "Identificador único e determinístico: enade-{curso_slug}-{ano}-{tipo_conteudo}-{tipo_questao}-q{numero}. A correspondência com os demais campos é verificada pelo validador Python.",
-      "examples": ["enade-sistemas-de-informacao-2023-ce-obj-q01"]
+      "examples": [
+        "enade-sistemas-de-informacao-2023-ce-obj-q01"
+      ]
     },
     "area": {
       "type": "string",
@@ -53,12 +53,18 @@
     },
     "tipo_conteudo": {
       "type": "string",
-      "enum": ["FG", "CE"],
+      "enum": [
+        "FG",
+        "CE"
+      ],
       "description": "FG: Formação Geral; CE: Componente Específico."
     },
     "tipo_questao": {
       "type": "string",
-      "enum": ["objetiva", "discursiva"],
+      "enum": [
+        "objetiva",
+        "discursiva"
+      ],
       "description": "Classificação do formato da questão."
     },
     "texto_base": {
@@ -73,31 +79,70 @@
       "pattern": "\\S",
       "description": "Enunciado principal da questão."
     },
+    "imagens_enunciado": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true
+    },
     "alternativas": {
       "type": "array",
-      "description": "Alternativas disponíveis. Letras únicas entre A e E (unicidade verificada pelo validador Python).",
+      "description": "Alternativas da questao, com texto, imagem ou ambos.",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["letra", "texto"],
+        "required": [
+          "letra"
+        ],
         "properties": {
           "letra": {
             "type": "string",
-            "enum": ["A", "B", "C", "D", "E"],
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ],
             "description": "Letra da alternativa."
           },
           "texto": {
             "type": "string",
             "minLength": 1,
             "pattern": "\\S",
-            "description": "Texto da alternativa."
+            "description": "Texto da alternativa, quando existente."
+          },
+          "imagem": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Caminho relativo da imagem da alternativa."
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "texto"
+            ]
+          },
+          {
+            "required": [
+              "imagem"
+            ]
+          }
+        ]
       },
       "uniqueItems": true
     },
     "gabarito": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^[A-Z]$",
       "description": "Letra da alternativa correta, ou null quando não disponível ou não aplicável. A correspondência com as alternativas é verificada pelo validador Python."
     },
@@ -126,7 +171,10 @@
     "origem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["arquivo", "pagina"],
+      "required": [
+        "arquivo",
+        "pagina"
+      ],
       "properties": {
         "arquivo": {
           "type": "string",
@@ -142,7 +190,6 @@
       }
     }
   },
-
   "allOf": [
     {
       "if": {
@@ -151,7 +198,9 @@
             "const": "objetiva"
           }
         },
-        "required": ["tipo_questao"]
+        "required": [
+          "tipo_questao"
+        ]
       },
       "then": {
         "properties": {
@@ -168,7 +217,9 @@
             "const": "discursiva"
           }
         },
-        "required": ["tipo_questao"]
+        "required": [
+          "tipo_questao"
+        ]
       },
       "then": {
         "properties": {
@@ -188,7 +239,9 @@
             "const": true
           }
         },
-        "required": ["anulada"]
+        "required": [
+          "anulada"
+        ]
       },
       "then": {
         "properties": {
