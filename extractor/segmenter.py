@@ -674,3 +674,22 @@ def extrair_questoes_planejadas(
         "falhas": falhas,
         "revisar": revisar,
     }
+def identificar_titulo_ocr(linha):
+    """Identifica titulos OCR com separadores decorativos."""
+    titulo = identificar_titulo(linha)
+    if titulo is not None:
+        return titulo
+    normalizado = normalizar_texto(linha.strip())
+    padrao = re.compile(
+        r"^QUESTAO\s*(?:(DISCURSIVA)\s+)?(\d{1,2})"
+        r"(?:\s*[\u2013\u2014\u2015\u2500-]+)?$"
+    )
+    resultado = padrao.fullmatch(normalizado)
+    if not resultado:
+        return None
+    return {
+        "numero_questao": int(resultado.group(2)),
+        "tipo_questao": (
+            "discursiva" if resultado.group(1) else "objetiva"
+        ),
+    }
