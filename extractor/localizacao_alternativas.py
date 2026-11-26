@@ -68,4 +68,50 @@ def localizar_grupos_alternativas(caminho_pdf, numero_pagina):
                 }
                 for letra, x, y in grupo
             ])
+        # Caso especial: alternativas A-C na coluna esquerda
+        # e alternativas D-E na coluna direita.
+        if not grupos and len(marcadores) == 5:
+            por_letra = {
+                letra: (letra, x, y)
+                for letra, x, y in marcadores
+            }
+            if set(por_letra) == set("ABCDE"):
+                a, b, c, d, e = (
+                    por_letra[letra]
+                    for letra in "ABCDE"
+                )
+                intervalos = [
+                    b[2] - a[2],
+                    c[2] - b[2],
+                    e[2] - d[2],
+                ]
+                colunas_validas = (
+                    abs(b[1] - a[1]) <= 3
+                    and abs(c[1] - a[1]) <= 3
+                    and abs(e[1] - d[1]) <= 3
+                    and d[1] - a[1] >= 100
+                )
+                linhas_alinhadas = (
+                    abs(d[2] - a[2]) <= 5
+                    and abs(e[2] - b[2]) <= 5
+                )
+                espacamento_valido = (
+                    all(75 < valor <= 250 for valor in intervalos)
+                    and max(intervalos) <= 1.25 * min(intervalos)
+                )
+                if (
+                    colunas_validas
+                    and linhas_alinhadas
+                    and espacamento_valido
+                ):
+                    grupos.append([
+                        {
+                            "letra": letra,
+                            "x": x,
+                            "y": y,
+                        }
+                        for letra, x, y in (
+                            a, b, c, d, e
+                        )
+                    ])
         return grupos
