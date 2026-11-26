@@ -1,6 +1,7 @@
-﻿"""Recuperacao integrada da questao 04 do ENADE 2017."""
+"""Recuperacao integrada da questao 04 do ENADE 2017."""
 from pathlib import Path
 import pymupdf
+from extractor.normalizacao_ocr import normalizar_quebras_ocr
 from extractor.localizacao_alternativas import (
     localizar_grupos_alternativas,
 )
@@ -135,6 +136,10 @@ def recuperar_questao_04_2017(
         },
         "pagina_final": NUMERO_PAGINA,
     }
+    questao["texto"] = normalizar_quebras_ocr(
+        questao["texto"]
+    )
+
     return anexar_imagem_enunciado(
         questao=questao,
         caminho_pdf=pdf,

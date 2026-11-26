@@ -12,18 +12,24 @@ def interpretar_gabarito(texto):
         re.IGNORECASE,
     )
 
+    padrao_tabular = re.compile(
+        r"^(\d+)\s+([A-E]|\*{3}|ANULADA)$",
+        re.IGNORECASE,
+    )
     registros = {}
 
     for linha in texto.splitlines():
         linha = linha.strip()
         correspondencia = padrao.fullmatch(linha)
-
-        if not correspondencia:
-            continue
-
-        discursiva, numero, resposta = correspondencia.groups()
-
-        tipo = "discursiva" if discursiva else "objetiva"
+        if correspondencia:
+            discursiva, numero, resposta = correspondencia.groups()
+            tipo = "discursiva" if discursiva else "objetiva"
+        else:
+            correspondencia = padrao_tabular.fullmatch(linha)
+            if not correspondencia:
+                continue
+            numero, resposta = correspondencia.groups()
+            tipo = "objetiva"
         numero = int(numero)
         resposta = resposta.upper()
 
