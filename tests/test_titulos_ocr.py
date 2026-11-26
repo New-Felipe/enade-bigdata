@@ -1,4 +1,4 @@
-﻿"""Testes do reconhecimento de titulos recuperados por OCR."""
+"""Testes do reconhecimento de titulos recuperados por OCR."""
 import unittest
 from extractor.segmenter import (
     identificar_titulo,
@@ -57,5 +57,21 @@ class TestIdentificarTituloOCR(unittest.TestCase):
                 "QUEST\u00c3O 15 \u2014\u2014"
             )
         )
+
+    def test_titulos_discursivos_com_variacoes_ocr(self):
+        amostras = {
+            4: "QUEST\u00c3O DISCURSIVA04 \u2014\u2014\u2014\u2014",
+            5: "QUEST\u00c3O DISCURSIVA 05 \u2014=>>>>>>>>>>>>>>\u2014\u2014",
+        }
+        for numero, titulo in amostras.items():
+            with self.subTest(numero=numero):
+                self.assertEqual(
+                    identificar_titulo_ocr(titulo),
+                    {
+                        "numero_questao": numero,
+                        "tipo_questao": "discursiva",
+                    },
+                )
+
 if __name__ == "__main__":
     unittest.main()

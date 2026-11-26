@@ -79,6 +79,16 @@
       "pattern": "\\S",
       "description": "Enunciado principal da questão."
     },
+    "imagens_enunciado": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true
+    },
     "alternativas": {
       "type": "array",
       "description": "Alternativas da questao, com texto, imagem ou ambos.",

@@ -45,6 +45,8 @@ def converter_questao_canonica(questao, ano):
         },
     }
 
+    if "imagens_enunciado" in questao:
+        documento["imagens_enunciado"] = questao["imagens_enunciado"]
     documento["id"] = gerar_id(documento)
 
     return documento

@@ -374,7 +374,7 @@ def segmentar_questoes_na_mesma_pagina(
 
     return questoes
 
-def mapear_questoes_prova(paginas, caminho_pdf):
+def mapear_questoes_prova(paginas, caminho_pdf, executavel_tesseract=None):
     """Mapeia as questoes e suas localizacoes na prova."""
 
     questoes = []
@@ -386,6 +386,83 @@ def mapear_questoes_prova(paginas, caminho_pdf):
         if eh_pagina_questionario(texto):
             continue
 
+        if executavel_tesseract is not None:
+            import pymupdf
+            from extractor.ocr import extrair_regiao_ocr
+            with pymupdf.open(caminho_pdf) as documento:
+                pagina_pdf = documento[numero_pagina - 1]
+                largura = pagina_pdf.rect.width
+                altura = pagina_pdf.rect.height
+            meio = largura / 2
+            limite_inferior = min(145, altura - 25)
+            regioes = {
+                "esquerda": (
+                    25, 45, meio, limite_inferior
+                ),
+                "direita": (
+                    meio, 45, largura - 25, limite_inferior
+                ),
+            }
+            candidatos = []
+            for nome_coluna, regiao in regioes.items():
+                texto_ocr = extrair_regiao_ocr(
+                    caminho_pdf=caminho_pdf,
+                    numero_pagina=numero_pagina,
+                    regiao=regiao,
+                    executavel_tesseract=executavel_tesseract,
+                    dpi=300,
+                    psm=6,
+                )
+                for linha in texto_ocr.splitlines():
+                    titulo = identificar_titulo_ocr(linha)
+                    if titulo:
+                        candidatos.append({
+                            **titulo,
+                            "pagina": numero_pagina,
+                            "coluna": nome_coluna,
+                        })
+            colunas = extrair_colunas(
+                caminho_pdf, numero_pagina
+            )["colunas"]
+            candidatos.extend(
+                identificar_questoes_em_colunas(
+                    texto, colunas, numero_pagina
+                )
+            )
+            for linha in texto.splitlines():
+                titulo = identificar_titulo(linha)
+                if titulo:
+                    candidatos.append({
+                        **titulo,
+                        "pagina": numero_pagina,
+                        "coluna": None,
+                    })
+            unicas = {}
+            for candidato in candidatos:
+                chave = (
+                    candidato["tipo_questao"],
+                    candidato["numero_questao"],
+                )
+                anterior = unicas.get(chave)
+                if (
+                    anterior is None
+                    or (
+                        anterior["coluna"] is None
+                        and candidato["coluna"] is not None
+                    )
+                ):
+                    unicas[chave] = candidato
+            identificadas = sorted(
+                unicas.values(),
+                key=lambda item: (
+                    item["coluna"] == "direita",
+                    item["numero_questao"],
+                ),
+            )
+            if len(identificadas) == 1:
+                identificadas[0]["coluna"] = None
+            questoes.extend(identificadas)
+            continue
         titulos = [
             identificar_titulo(linha)
             for linha in texto.splitlines()
@@ -681,8 +758,8 @@ def identificar_titulo_ocr(linha):
         return titulo
     normalizado = normalizar_texto(linha.strip())
     padrao = re.compile(
-        r"^QUESTAO\s*(?:(DISCURSIVA)\s+)?(\d{1,2})"
-        r"(?:\s*[\u2013\u2014\u2015\u2500-]+)?$"
+        r"^QUESTAO\s*(?:(DISCURSIVA)\s*)?(\d{1,2})"
+        r"(?:\s*[\u2013\u2014\u2015\u2500=>-]+)?$"
     )
     resultado = padrao.fullmatch(normalizado)
     if not resultado:

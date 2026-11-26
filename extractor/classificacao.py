@@ -2,9 +2,9 @@
 
 
 def classificar_tipo_conteudo(questao, ano):
-    """Identifica FG ou CE conforme a prova oficial de 2021."""
+    """Identifica FG ou CE nas provas ENADE 2017 e 2021."""
 
-    if ano != 2021:
+    if ano not in (2017, 2021):
         raise ValueError(
             f"Classificacao nao configurada para o ano {ano}."
         )
